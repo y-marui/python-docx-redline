@@ -26,6 +26,7 @@ app = typer.Typer(
     help="Safe, minimal Word (.docx) tracked-change editing.", no_args_is_help=True
 )
 
+
 def _document(package: DocxPackage) -> etree._Element:
     return package.xml("word/document.xml")
 
