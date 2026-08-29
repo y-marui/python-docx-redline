@@ -96,7 +96,7 @@ jobs:
       - run: python -c "import docx_redline"
 
   gate:
-    name: Required Checks
+    name: CI
     needs: [changes, security, lint, test, build]
     if: always() && (github.event_name != 'pull_request' || github.event.pull_request.draft == false)
     runs-on: ubuntu-latest
