@@ -29,6 +29,8 @@ packages = ["src/docx_redline"]
 [tool.ruff]
 line-length = 88
 target-version = "py311"
+# dev-charter is vendored, read-only documentation rather than project code.
+exclude = ["docs"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP"]
