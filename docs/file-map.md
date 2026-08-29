@@ -1,27 +1,61 @@
 # File Map
 
-ファイルレベルの依存関係を記録するドキュメント。初回コード探索後に追記していく。
-
-## 記載方法
-
-各ファイルについて、主要な import 元・呼び出し元・呼び出し先を記録する。
-
-```
-src/project_name/
-  __init__.py
-    - exports: (公開シンボル)
-
-  module_a.py
-    - imports: module_b, module_c
-    - used by: module_x
-```
-
 ## ファイル依存マップ
 
-<!-- 初回探索後にここへ追記する -->
-
 ```
-src/project_name/
+src/docx_redline/
   __init__.py
-    - (未記入)
+    - exports: __version__
+
+  errors.py
+    - exports: RedlineError
+    - used by: text_ops, cli
+
+  ooxml.py
+    - imports: (stdlib, lxml)
+    - exports: W_NS, NSMAP, w(), qn(), xml_bytes(), utc_timestamp(),
+      IdAllocator, next_change_id(), enable_tracking(), set_text(),
+      make_run(), make_tracked_wrapper(), make_change(), apply_bold()
+    - used by: package, text_ops, comments, cleanup, inspect, validate, cli
+
+  package.py
+    - imports: ooxml
+    - exports: DocxPackage
+    - used by: comments, validate, cli
+
+  text_ops.py
+    - imports: errors, ooxml
+    - exports: visible_text(), find_paragraph(), replace_text(),
+      replace_paragraph_text(), insert_paragraph_after()
+    - used by: cli
+
+  comments.py
+    - imports: ooxml, package
+    - exports: Comment, list_comments(), add_comment(), strip_comments()
+    - used by: validate, cli
+
+  cleanup.py
+    - imports: ooxml
+    - exports: strip_format_revisions()
+    - used by: cli
+
+  inspect.py
+    - imports: ooxml
+    - exports: ParagraphInfo, inspect_document()
+    - used by: cli
+
+  validate.py
+    - imports: comments, ooxml, package
+    - exports: CheckResult, ValidationReport, check_zip_integrity(),
+      check_tracking_enabled(), check_has_changes(),
+      check_no_bold_insertions(), check_max_deletion_length(),
+      check_comments_consistent(), check_paragraph_count(),
+      check_protect_numbers(), check_contains(), check_not_contains()
+    - used by: cli
+
+  cli.py
+    - imports: comments, validate, cleanup, errors, inspect, ooxml,
+      package, text_ops, typer
+    - exports: app, main()
+    - entry point: `docx-redline` (pyproject.toml [project.scripts])
 ```

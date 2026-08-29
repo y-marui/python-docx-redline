@@ -23,16 +23,20 @@ AI はタスク開始時に以下の順で参照する:
 
 ## Project Overview
 
-**目的:** AI支援開発用の Python パッケージ/アプリケーションテンプレート。
-uv + Claude Code + GitHub Copilot 前提の OSS テンプレート。
+**目的:** Word (`.docx`) 文書を、その場限りのスクリプトを書かずに安全な最小差分の
+Word変更履歴（Track Changes）として編集するCLI。校閲作業のたびに `lxml` で
+OOXMLを直接いじる使い捨てPythonスクリプトを書いていたのを、恒久的なコマンド一式に
+置き換えるために作られた。
 
-**チーム規模:** 個人〜3人（小規模チーム）。アジャイルで迅速な意思決定を重視。
+**チーム規模:** 個人利用ツール。
 
 **技術スタック:**
 
 | 項目 | バージョン |
 |------|-----------|
 | Python | ^3.11 |
+| typer | ^0.12（CLI） |
+| lxml | ^5.0（OOXML操作。型スタックがないため `[[tool.mypy.overrides]]` で ignore_missing_imports） |
 | uv | 最新安定版 |
 | pytest | ^8 |
 | ruff | ^0.3（linter / formatter, line-length=88, select: E/F/I/UP） |
@@ -41,28 +45,32 @@ uv + Claude Code + GitHub Copilot 前提の OSS テンプレート。
 **主要ディレクトリ:**
 
 ```
-src/project_name/   # パッケージ本体
+src/docx_redline/   # パッケージ本体
 tests/unit/         # 単体テスト
-tests/integration/  # 統合テスト
+tests/integration/  # CLIの end-to-end テスト（typer.testing.CliRunner）
 docs/               # 人間が書き・読む仕様書（AI は参照のみ）
 docs/dev-charter/   # 開発憲章（git subtree で取り込み）
-examples/           # 実装パターンサンプル
 ```
 
 **モジュール構成と依存方向:**
 
 ```
-API → Service → Repository → Storage
+cli → (text_ops | comments | cleanup | inspect | validate) → package → ooxml
 ```
-逆依存禁止。循環依存禁止。
+逆依存禁止。循環依存禁止。`ooxml.py` はどのモジュールにも依存しない最下層。
 
 **モジュール一覧:**
 
 | モジュール | 役割 |
 |---|---|
-| `core` | ビジネスロジック |
-| `api` | HTTP インターフェース |
-| `repository` | データアクセス |
+| `ooxml` | WordprocessingML の名前空間・要素生成・IDアロケータなどの低レベルヘルパー |
+| `package` | `.docx` (zip) をパートごとに読み書きする `DocxPackage` |
+| `text_ops` | run境界をまたいでも安全なテキスト置換・段落置換・段落挿入エンジン |
+| `comments` | Wordコメントの追加・一覧・全削除（`comments.xml` 配管の自動生成含む） |
+| `cleanup` | 書式のみの変更履歴（`w:pPrChange`）の除去 |
+| `inspect` | 段落単位のダンプ（style・改ページ・ins/del・変更履歴付きテキスト） |
+| `validate` | 納品前の安全確認チェック群 |
+| `cli` | 上記を typer のサブコマンドとして束ねる |
 
 **AI コンテキスト優先順位:**
 1. タスクコンテキスト（Issue / Pull Request）

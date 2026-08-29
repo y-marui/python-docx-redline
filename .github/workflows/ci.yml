@@ -93,7 +93,7 @@ jobs:
         with:
           python-version: "3.11"
       - run: uv sync --frozen
-      - run: python -c "import project_name"
+      - run: python -c "import docx_redline"
 
   gate:
     name: Required Checks
