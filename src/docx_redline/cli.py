@@ -26,9 +26,6 @@ app = typer.Typer(
     help="Safe, minimal Word (.docx) tracked-change editing.", no_args_is_help=True
 )
 
-DEFAULT_AUTHOR = "AI Proofreading"
-
-
 def _document(package: DocxPackage) -> etree._Element:
     return package.xml("word/document.xml")
 
@@ -93,7 +90,9 @@ def replace(
     old: str = typer.Argument(..., help="Exact text to find."),
     new: str = typer.Argument(..., help="Replacement text."),
     out: Path = typer.Option(..., "--out"),
-    author: str = typer.Option(DEFAULT_AUTHOR, "--author"),
+    author: str = typer.Option(
+        ..., "--author", help="Reviewer identity written into Word revisions."
+    ),
     occurrence: int | None = typer.Option(
         None, "--occurrence", help="Replace only the Nth match (0-based)."
     ),
@@ -145,7 +144,9 @@ def replace_batch(
         help="JSON array of replacement objects.",
     ),
     out: Path = typer.Option(..., "--out"),
-    author: str = typer.Option(DEFAULT_AUTHOR, "--author"),
+    author: str = typer.Option(
+        ..., "--author", help="Reviewer identity written into Word revisions."
+    ),
 ) -> None:
     """Apply a sequential list of tracked replacements from a JSON file.
 
@@ -189,7 +190,9 @@ def replace_paragraph_cmd(
     exact: bool = typer.Option(
         False, "--exact", help="Treat --match as an exact full-text match."
     ),
-    author: str = typer.Option(DEFAULT_AUTHOR, "--author"),
+    author: str = typer.Option(
+        ..., "--author", help="Reviewer identity written into Word revisions."
+    ),
     bold: bool | None = typer.Option(None, "--bold/--no-bold"),
 ) -> None:
     """Replace an entire paragraph's text as a tracked delete+insert."""
@@ -218,7 +221,9 @@ def insert_paragraph_cmd(
     exact: bool = typer.Option(
         False, "--exact", help="Treat --after as an exact full-text match."
     ),
-    author: str = typer.Option(DEFAULT_AUTHOR, "--author"),
+    author: str = typer.Option(
+        ..., "--author", help="Reviewer identity written into Word revisions."
+    ),
     bold: bool | None = typer.Option(None, "--bold/--no-bold"),
 ) -> None:
     """Insert a new tracked paragraph right after an anchor paragraph."""
@@ -247,7 +252,9 @@ def add_comment_cmd(
     exact: bool = typer.Option(
         False, "--exact", help="Treat --match as an exact full-text match."
     ),
-    author: str = typer.Option(DEFAULT_AUTHOR, "--author"),
+    author: str = typer.Option(
+        ..., "--author", help="Reviewer identity written into Word comments."
+    ),
 ) -> None:
     """Anchor a Word comment to a paragraph, adding comments.xml plumbing if needed."""
     package = DocxPackage(input_path)

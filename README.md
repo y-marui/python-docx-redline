@@ -51,7 +51,7 @@ Once built, install it as a standalone command from any other project with
 ### `replace`: exactly one match by default
 
 ```sh
-docx-redline replace draft.docx "old phrasing" "new phrasing" --out draft-fix1.docx
+docx-redline replace draft.docx "old phrasing" "new phrasing" --out draft-fix1.docx --author "Review Agent"
 ```
 
 If more than one match exists, the command errors out instead of guessing —
@@ -69,11 +69,17 @@ this is the safety net against silently editing the wrong occurrence. Pass
 ```
 
 ```sh
-docx-redline replace-batch draft.docx --pairs pairs.json --out draft-fix1.docx
+docx-redline replace-batch draft.docx --pairs pairs.json --out draft-fix1.docx --author "Review Agent"
 ```
 
 Each entry may also set `all` / `occurrence` / `bold` / `paragraph_contains`,
 matching the same-named `replace` options.
+
+### Authorship
+
+Every command that creates tracked revisions or comments requires `--author`.
+Pass the actual name of the person or code agent performing the review; the
+tool does not invent a generic reviewer identity.
 
 ### `validate`: pre-delivery safety checks
 
