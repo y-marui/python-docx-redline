@@ -1,0 +1,39 @@
+# main への push で lite ブランチ（scripts/lite-manifest.txt の [include] の
+# 部分集合）を再構築する。scripts/publish-lite-branch.sh 参照。
+#
+# paths は lite-manifest.txt の include 対象と完全に一致させる。
+# ファイルを include に追加/削除したら、このリストも同じ作業内で更新すること。
+
+name: Publish Lite Branch
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "AI_COLLABORATION_RULES.md"
+      - "AI_CONTEXT_HIERARCHY.md"
+      - "AI_TOOL_SETUP.md"
+      - "DOCS_STRUCTURE.md"
+      - "SECURITY_POLICY.md"
+      - "topics/GITHUB_PROJECT_MANAGEMENT.md"
+      - "CHARTER_INDEX.md"
+      - "scripts/lite-manifest.txt"
+      - "scripts/publish-lite-branch.sh"
+  workflow_dispatch:
+
+jobs:
+  publish:
+    name: Publish
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Publish lite branch
+        run: |
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git config user.name "github-actions[bot]"
+          bash scripts/publish-lite-branch.sh
