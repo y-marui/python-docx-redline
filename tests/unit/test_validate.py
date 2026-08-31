@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from lxml import etree
+
 from docx_redline import comments as comments_mod
 from docx_redline import validate as validate_mod
 from docx_redline.ooxml import NSMAP, enable_tracking, next_change_id, utc_timestamp
@@ -124,6 +126,53 @@ def test_check_run_properties_preserved_skips_whole_paragraph_replacement(
     report = validate_mod.ValidationReport()
     validate_mod.check_run_properties_preserved(document, original, report)
     assert report.ok
+
+
+def test_check_run_properties_preserved_does_not_misalign_repeated_text(
+    docx_factory,
+) -> None:
+    # Two identical "A" characters, differently formatted. Replacing the
+    # first (bold) one must not have the surviving second (plain) one
+    # compared against the wrong original occurrence.
+    original_docx = docx_factory("original.docx", [[("A", "<w:b/>"), ("A", "")]])
+    original = DocxPackage(original_docx).xml("word/document.xml")
+
+    edited_docx = docx_factory("edited.docx", [[("A", "<w:b/>"), ("A", "")]])
+    package = DocxPackage(edited_docx)
+    document = package.xml("word/document.xml")
+    ids = next_change_id(document)
+    replace_text(document, "A", "B", ids, "Tester", utc_timestamp(), occurrence=0)
+
+    report = validate_mod.ValidationReport()
+    validate_mod.check_run_properties_preserved(document, original, report)
+    assert report.ok
+
+
+def _inject_table_cell_paragraph(document: etree._Element, rpr_xml: str) -> None:
+    rpr = f"<w:rPr>{rpr_xml}</w:rPr>" if rpr_xml else ""
+    table_xml = (
+        '<w:tbl xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">'
+        f"<w:tr><w:tc><w:p><w:r>{rpr}"
+        '<w:t xml:space="preserve">Cell text</w:t></w:r></w:p></w:tc></w:tr></w:tbl>'
+    )
+    body = document.find("w:body", namespaces=NSMAP)
+    body.insert(0, etree.fromstring(table_xml.encode("utf-8")))
+
+
+def test_check_run_properties_preserved_covers_table_paragraphs(docx_factory) -> None:
+    original_docx = docx_factory("original.docx", [["Body text."]])
+    original = DocxPackage(original_docx).xml("word/document.xml")
+    _inject_table_cell_paragraph(original, "")
+
+    edited_docx = docx_factory("edited.docx", [["Body text."]])
+    package = DocxPackage(edited_docx)
+    document = package.xml("word/document.xml")
+    # Untouched table-cell text reformatted outside any tracked change.
+    _inject_table_cell_paragraph(document, "<w:b/>")
+
+    report = validate_mod.ValidationReport()
+    validate_mod.check_run_properties_preserved(document, original, report)
+    assert not report.ok
 
 
 def test_check_max_deletion_length_flags_long_deletion(docx_factory) -> None:

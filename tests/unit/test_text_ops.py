@@ -158,6 +158,27 @@ def test_replace_rejects_heterogeneous_character_style_run_boundary(
         replace_text(document, "oobar", "OOBAR", ids, "Tester", utc_timestamp())
 
 
+def test_replace_allows_match_across_equivalent_bold_encodings(docx_factory) -> None:
+    # <w:b/>, w:val="1", and w:val="true" all mean the same "bold on" -
+    # they must not be treated as a formatting boundary.
+    docx = docx_factory(
+        "doc.docx",
+        [
+            [
+                ("foo", "<w:b/>"),
+                ("bar", '<w:b w:val="1"/>'),
+                ("baz", '<w:b w:val="true"/>'),
+            ]
+        ],
+    )
+    package = _open(docx)
+    document = package.xml("word/document.xml")
+    ids = next_change_id(document)
+    replace_text(document, "oobarba", "OOBARBA", ids, "Tester", utc_timestamp())
+    paragraph = _paragraphs(document)[0]
+    assert visible_text(paragraph) == "fOOBARBAz"
+
+
 def test_replace_allows_match_fully_within_one_formatted_run(docx_factory) -> None:
     docx = docx_factory(
         "doc.docx", [[("before ", ""), ("bold text here", "<w:b/>"), (" after", "")]]
