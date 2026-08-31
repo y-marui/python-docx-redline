@@ -10,7 +10,7 @@ from lxml import etree
 
 from . import comments as comments_mod
 from . import validate as validate_mod
-from .cleanup import strip_format_revisions
+from .cleanup import AcceptedRevisions, accept_revisions, strip_format_revisions
 from .errors import RedlineError
 from .inspect import inspect_document
 from .ooxml import IdAllocator, enable_tracking, next_change_id, utc_timestamp
@@ -42,6 +42,30 @@ def _save(package: DocxPackage, out_path: Path) -> None:
         package.save(out_path)
     except ValueError as error:
         _fail(str(error))
+
+
+def _wordprocessingml_roots(
+    package: DocxPackage,
+) -> list[tuple[str, etree._Element]]:
+    """Return revision-bearing Word story parts without loading unrelated XML."""
+    roots: list[tuple[str, etree._Element]] = []
+    story_parts = {
+        "word/comments.xml",
+        "word/document.xml",
+        "word/endnotes.xml",
+        "word/footnotes.xml",
+    }
+    for name in package.all_part_names():
+        is_header_or_footer = name.startswith(("word/header", "word/footer"))
+        if name not in story_parts and not is_header_or_footer:
+            continue
+        root = package.xml(name)
+        if (
+            etree.QName(root).namespace
+            == "http://schemas.openxmlformats.org/wordprocessingml/2006/main"
+        ):
+            roots.append((name, root))
+    return roots
 
 
 def _prepare_edit(package: DocxPackage) -> tuple[etree._Element, IdAllocator, str]:
@@ -297,6 +321,27 @@ def strip_format_revisions_cmd(
     removed = strip_format_revisions(_document(package))
     _save(package, out)
     typer.echo(f"OK: removed {removed} w:pPrChange node(s) -> {out}")
+
+
+@app.command("accept-revisions")
+def accept_revisions_cmd(
+    input_path: Path = typer.Argument(..., exists=True, readable=True),
+    out: Path = typer.Option(..., "--out"),
+) -> None:
+    """Accept all existing revisions into a separate review copy."""
+    package = DocxPackage(input_path)
+    accepted = AcceptedRevisions()
+    parts = _wordprocessingml_roots(package)
+    for _, document in parts:
+        accepted.add(accept_revisions(document))
+    _save(package, out)
+    typer.echo(
+        "OK: accepted "
+        f"{accepted.insertions} insertion(s), {accepted.deletions} deletion(s), and "
+        f"{accepted.property_changes} property change(s); removed "
+        f"{accepted.empty_paragraphs} empty paragraph(s) across {len(parts)} "
+        f"part(s) -> {out}"
+    )
 
 
 @app.command("enable-tracking")

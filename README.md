@@ -45,6 +45,7 @@ Once built, install it as a standalone command from any other project with
 | `add-comment` | Anchor a Word comment to a paragraph (creates `comments.xml` plumbing as needed) |
 | `strip-comments` | Remove every comment and its anchors |
 | `strip-format-revisions` | Remove formatting-only revisions (`w:pPrChange`) that clutter the diff |
+| `accept-revisions` | Write a separate copy with all existing revisions accepted |
 | `enable-tracking` | Turn on Track Changes |
 | `validate` | Pre-delivery safety checks (see below) |
 
@@ -74,6 +75,17 @@ docx-redline replace-batch draft.docx --pairs pairs.json --out draft-fix1.docx -
 
 Each entry may also set `all` / `occurrence` / `bold` / `paragraph_contains`,
 matching the same-named `replace` options.
+
+### `accept-revisions`: create a review copy with existing revisions accepted
+
+```sh
+docx-redline accept-revisions draft.docx --out draft-accepted.docx
+```
+
+The input remains unchanged. The command accepts existing insertions, deletions,
+moves, and property revisions in WordprocessingML parts such as the document
+body, headers, footers, and notes. It retains comments and unrelated package
+parts, then reports the accepted-change and empty-paragraph counts.
 
 ### Authorship
 
