@@ -15,7 +15,8 @@ src/docx_redline/
     - imports: (stdlib, lxml)
     - exports: W_NS, NSMAP, w(), qn(), xml_bytes(), utc_timestamp(),
       IdAllocator, next_change_id(), enable_tracking(), set_text(),
-      make_run(), make_tracked_wrapper(), make_change(), apply_bold()
+      make_run(), make_tracked_wrapper(), make_change(), apply_bold(),
+      RprSignature, rpr_signature()
     - used by: package, text_ops, comments, cleanup, inspect, validate, cli
 
   package.py
@@ -48,9 +49,10 @@ src/docx_redline/
     - imports: comments, ooxml, package
     - exports: CheckResult, ValidationReport, check_zip_integrity(),
       check_tracking_enabled(), check_has_changes(),
-      check_no_bold_insertions(), check_max_deletion_length(),
+      check_no_formatting_insertions(), check_max_deletion_length(),
       check_comments_consistent(), check_paragraph_count(),
-      check_protect_numbers(), check_contains(), check_not_contains()
+      check_protect_numbers(), check_run_properties_preserved(),
+      check_contains(), check_not_contains()
     - used by: cli
 
   cli.py

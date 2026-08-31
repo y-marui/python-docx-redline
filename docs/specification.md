@@ -61,8 +61,9 @@ A JSON array of check results, in the order the checks were run:
 
 The command's exit status is 0 only if every check's `passed` is `true`.
 Which checks run depends on the flags passed (see README); `zip-integrity`,
-`tracking-enabled`, `has-changes`, `no-bold-insertions`, and
-`comments-consistent` always run.
+`tracking-enabled`, `has-changes`, `no-formatting-insertions`, and
+`comments-consistent` always run. `run-properties-preserved` runs whenever
+`--original` is given, alongside `paragraph-count` and `protect-numbers`.
 
 ## Exit codes
 
