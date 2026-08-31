@@ -11,7 +11,7 @@ from typing import cast
 from lxml import etree
 
 from .comments import list_comments
-from .ooxml import NSMAP
+from .ooxml import NSMAP, RprSignature, rpr_signature, w
 from .package import DocxPackage
 
 
@@ -39,10 +39,15 @@ def _visible_text(paragraph: etree._Element) -> str:
 
 
 def _body_paragraphs(document: etree._Element) -> list[etree._Element]:
+    """All paragraphs in document order, including ones nested in tables.
+
+    Uses `.//w:p` rather than direct children so table-cell paragraphs are
+    covered too, matching the scope `replace_text` already searches.
+    """
     body = document.find("w:body", namespaces=NSMAP)
     if body is None:
         raise ValueError("word/document.xml has no w:body")
-    return cast("list[etree._Element]", body.findall("w:p", namespaces=NSMAP))
+    return cast("list[etree._Element]", body.xpath(".//w:p", namespaces=NSMAP))
 
 
 def check_zip_integrity(path: Path, report: ValidationReport) -> None:
@@ -76,16 +81,114 @@ def check_has_changes(
     )
 
 
-def check_no_bold_insertions(
+_INSERTION_FORMATTING_TAGS = (
+    "b",
+    "bCs",
+    "i",
+    "iCs",
+    "u",
+    "strike",
+    "dstrike",
+    "vertAlign",
+    "rStyle",
+)
+
+
+def check_no_formatting_insertions(
     document: etree._Element, report: ValidationReport
 ) -> None:
-    offenders = document.xpath(".//w:ins//w:b | .//w:ins//w:bCs", namespaces=NSMAP)
+    """Flag any inserted text carrying notable run formatting for manual review.
+
+    Covers bold, italic, underline, strike, subscript/superscript (vertAlign),
+    and character style (rStyle) - always, whether it came from an explicit
+    --bold-style override or was preserved from the replaced text. This is a
+    conservative pre-delivery check, not an attempt to guess intent. Font,
+    size, and color are intentionally excluded: replacements routinely carry
+    those over from the source run (e.g. CJK font hints) and flagging every
+    such insertion would make the check useless in practice.
+    """
+    offenders: list[tuple[str, etree._Element]] = []
+    for tag in _INSERTION_FORMATTING_TAGS:
+        offenders.extend(
+            (tag, node)
+            for node in document.xpath(f".//w:ins//w:{tag}", namespaces=NSMAP)
+        )
     detail = (
-        "no inserted text is bold"
+        "no inserted text carries notable formatting"
         if not offenders
-        else f"{len(offenders)} bold run(s) inside w:ins"
+        else "formatting inside w:ins: "
+        + ", ".join(sorted({tag for tag, _ in offenders}))
+        + f" ({len(offenders)} run(s))"
     )
-    report.add("no-bold-insertions", not offenders, detail)
+    report.add("no-formatting-insertions", not offenders, detail)
+
+
+def _original_equivalent_signal(
+    paragraph: etree._Element,
+) -> list[tuple[str, RprSignature | None]]:
+    """Rebuild this paragraph's original text, in original order.
+
+    Walks `w:delText` (deleted - originally there) and `w:t` outside any
+    `w:ins` (untouched - still there) in document order; either kind of node
+    is, by construction, a verbatim copy of some contiguous original span.
+    `w:t` inside `w:ins` is skipped - inserted text has no original
+    counterpart. The formatting signature is `None` for deleted characters
+    (position placeholder only, not checked) and the current signature for
+    untouched ones (what this check actually verifies).
+    """
+    signal: list[tuple[str, RprSignature | None]] = []
+    for node in paragraph.iter(w("t"), w("delText")):
+        is_insertion = node.tag == w("t") and node.xpath(
+            "ancestor::w:ins", namespaces=NSMAP
+        )
+        if is_insertion:
+            continue
+        run = node.getparent()
+        rpr = run.find("w:rPr", namespaces=NSMAP) if run is not None else None
+        signature = rpr_signature(rpr) if node.tag == w("t") else None
+        signal.extend((ch, signature) for ch in node.text or "")
+    return signal
+
+
+def check_run_properties_preserved(
+    document: etree._Element, original: etree._Element, report: ValidationReport
+) -> None:
+    """Text left untouched by tracked changes must keep its original formatting.
+
+    Reconstructs each paragraph's original text from the current document (its
+    deletions plus whatever wasn't inserted or deleted) and walks it alongside
+    the real original paragraph position by position - this is an exact
+    reconstruction, not a fuzzy alignment, so repeated characters/phrases with
+    different original formatting can't be matched to the wrong occurrence. A
+    paragraph is skipped entirely (no false failure risked) when the
+    reconstructed text doesn't match the original verbatim - e.g. a
+    whole-paragraph replacement leaves nothing to reconstruct, and a paragraph
+    inserted or removed elsewhere in the document desyncs the by-index pairing.
+    """
+    problems: list[str] = []
+    for index, (current_p, original_p) in enumerate(
+        zip(_body_paragraphs(document), _body_paragraphs(original), strict=False)
+    ):
+        reconstructed = _original_equivalent_signal(current_p)
+        baseline = _original_equivalent_signal(original_p)
+        if [ch for ch, _ in reconstructed] != [ch for ch, _ in baseline]:
+            continue
+        for (char, baseline_sig), (_, current_sig) in zip(
+            baseline, reconstructed, strict=True
+        ):
+            if current_sig is None:  # deleted - not what this check verifies
+                continue
+            if baseline_sig != current_sig:
+                problems.append(
+                    f"paragraph {index}: formatting changed on unedited text {char!r}"
+                )
+    detail = (
+        "untouched text keeps its original formatting"
+        if not problems
+        else f"{len(problems)} formatting change(s) on unedited text: "
+        + "; ".join(problems[:5])
+    )
+    report.add("run-properties-preserved", not problems, detail)
 
 
 def check_max_deletion_length(

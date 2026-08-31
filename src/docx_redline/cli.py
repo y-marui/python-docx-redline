@@ -394,7 +394,7 @@ def validate(
     document = _document(package)
     validate_mod.check_tracking_enabled(package, report)
     validate_mod.check_has_changes(document, report, required=require_changes)
-    validate_mod.check_no_bold_insertions(document, report)
+    validate_mod.check_no_formatting_insertions(document, report)
     validate_mod.check_comments_consistent(package, document, report)
     if max_deletion_length is not None:
         validate_mod.check_max_deletion_length(document, report, max_deletion_length)
@@ -404,6 +404,7 @@ def validate(
         validate_mod.check_protect_numbers(
             document, original_document, number_pattern, report
         )
+        validate_mod.check_run_properties_preserved(document, original_document, report)
     if contains:
         validate_mod.check_contains(document, contains, report)
     if not_contains:

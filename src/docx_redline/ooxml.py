@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from copy import deepcopy
 from datetime import UTC, datetime
-from typing import cast
+from typing import Any, cast
 
 from lxml import etree
 
@@ -105,6 +105,73 @@ def make_change(
     wrapper = make_tracked_wrapper(kind, change_id, author, when)
     wrapper.append(make_run(rpr, value, deleted=(kind == "del")))
     return wrapper
+
+
+RprSignature = tuple[Any, ...]
+
+# ST_OnOff toggle properties (OOXML ECMA-376 17.3.2): the element's meaning is
+# a plain boolean, encoded several equivalent ways - <w:b/>, <w:b w:val="1"/>,
+# <w:b w:val="true"/>, and <w:b w:val="on"/> all mean "bold on". Compared as
+# raw attributes these would wrongly look different; normalize them instead.
+_TOGGLE_PROPERTIES = frozenset(
+    {
+        "b",
+        "bCs",
+        "i",
+        "iCs",
+        "caps",
+        "smallCaps",
+        "strike",
+        "dstrike",
+        "emboss",
+        "imprint",
+        "outline",
+        "shadow",
+        "vanish",
+        "webHidden",
+        "noProof",
+        "snapToGrid",
+        "specVanish",
+        "rtl",
+        "cs",
+        "oMath",
+    }
+)
+_ON_OFF_FALSE_VALUES = frozenset({"0", "false", "off"})
+
+
+def rpr_signature(rpr: etree._Element | None) -> RprSignature:
+    """Canonical, order-independent signature of a w:rPr's effective formatting.
+
+    Two runs compare equal here exactly when Word would render them
+    identically: same bold/italic/underline/strike, vertical alignment
+    (sub/superscript), character style, fonts, size, color, and any other
+    w:rPr child. `w:rPrChange` is excluded because it records the *prior*
+    formatting for a tracked format-only change, not the run's current
+    appearance. ST_OnOff toggles (bold, italic, etc.) are normalized to a
+    plain boolean so equivalent encodings (`<w:b/>`, `w:val="1"`, `"true"`,
+    `"on"`) compare equal.
+    """
+    if rpr is None:
+        return ()
+
+    def canonical(element: etree._Element) -> RprSignature:
+        local = etree.QName(element).localname
+        if local in _TOGGLE_PROPERTIES:
+            value = element.get(w("val"))
+            enabled = value is None or value.lower() not in _ON_OFF_FALSE_VALUES
+            return (element.tag, enabled)
+        attrs = tuple(sorted(element.attrib.items()))
+        children = tuple(sorted(canonical(child) for child in element))
+        return (element.tag, attrs, children)
+
+    return tuple(
+        sorted(
+            canonical(child)
+            for child in rpr
+            if etree.QName(child).localname != "rPrChange"
+        )
+    )
 
 
 def apply_bold(rpr: etree._Element | None, bold: bool | None) -> etree._Element | None:

@@ -92,6 +92,107 @@ def test_replace_across_run_boundaries(docx_factory) -> None:
     assert visible_text(paragraph) == "軌道現象の起源"
 
 
+def test_replace_across_homogeneous_run_boundaries_preserves_formatting(
+    docx_factory,
+) -> None:
+    docx = docx_factory(
+        "doc.docx",
+        [[("軌道", "<w:b/>"), ("トルク", "<w:b/>"), ("の起源", "<w:b/>")]],
+    )
+    package = _open(docx)
+    document = package.xml("word/document.xml")
+    ids = next_change_id(document)
+    replace_text(document, "道トルクの", "道現象の", ids, "Tester", utc_timestamp())
+    paragraph = _paragraphs(document)[0]
+    assert visible_text(paragraph) == "軌道現象の起源"
+    insertion = paragraph.xpath(".//w:ins/w:r", namespaces=NSMAP)[0]
+    assert insertion.xpath("./w:rPr/w:b", namespaces=NSMAP)
+
+
+def test_replace_rejects_heterogeneous_bold_run_boundary(docx_factory) -> None:
+    docx = docx_factory("doc.docx", [[("Hello ", ""), ("world", "<w:b/>"), ("!", "")]])
+    package = _open(docx)
+    document = package.xml("word/document.xml")
+    ids = next_change_id(document)
+    with pytest.raises(RedlineError, match="different.*formatting"):
+        replace_text(document, "lo wor", "LO WOR", ids, "Tester", utc_timestamp())
+    # No mutation on failure.
+    paragraph = _paragraphs(document)[0]
+    assert visible_text(paragraph) == "Hello world!"
+    assert _count(document, "del") == 0
+    assert _count(document, "ins") == 0
+
+
+def test_replace_rejects_heterogeneous_italic_run_boundary(docx_factory) -> None:
+    docx = docx_factory("doc.docx", [[("plain ", ""), ("slanted", "<w:i/>")]])
+    package = _open(docx)
+    document = package.xml("word/document.xml")
+    ids = next_change_id(document)
+    with pytest.raises(RedlineError, match="different.*formatting"):
+        replace_text(document, "n sla", "N SLA", ids, "Tester", utc_timestamp())
+
+
+def test_replace_rejects_heterogeneous_vertalign_run_boundary(docx_factory) -> None:
+    docx = docx_factory(
+        "doc.docx",
+        [[("x", ""), ("2", '<w:vertAlign w:val="superscript"/>'), ("y", "")]],
+    )
+    package = _open(docx)
+    document = package.xml("word/document.xml")
+    ids = next_change_id(document)
+    with pytest.raises(RedlineError, match="different.*formatting"):
+        replace_text(document, "x2y", "z", ids, "Tester", utc_timestamp())
+
+
+def test_replace_rejects_heterogeneous_character_style_run_boundary(
+    docx_factory,
+) -> None:
+    docx = docx_factory(
+        "doc.docx",
+        [[("foo", ""), ("bar", '<w:rStyle w:val="Emphasis"/>')]],
+    )
+    package = _open(docx)
+    document = package.xml("word/document.xml")
+    ids = next_change_id(document)
+    with pytest.raises(RedlineError, match="different.*formatting"):
+        replace_text(document, "oobar", "OOBAR", ids, "Tester", utc_timestamp())
+
+
+def test_replace_allows_match_across_equivalent_bold_encodings(docx_factory) -> None:
+    # <w:b/>, w:val="1", and w:val="true" all mean the same "bold on" -
+    # they must not be treated as a formatting boundary.
+    docx = docx_factory(
+        "doc.docx",
+        [
+            [
+                ("foo", "<w:b/>"),
+                ("bar", '<w:b w:val="1"/>'),
+                ("baz", '<w:b w:val="true"/>'),
+            ]
+        ],
+    )
+    package = _open(docx)
+    document = package.xml("word/document.xml")
+    ids = next_change_id(document)
+    replace_text(document, "oobarba", "OOBARBA", ids, "Tester", utc_timestamp())
+    paragraph = _paragraphs(document)[0]
+    assert visible_text(paragraph) == "fOOBARBAz"
+
+
+def test_replace_allows_match_fully_within_one_formatted_run(docx_factory) -> None:
+    docx = docx_factory(
+        "doc.docx", [[("before ", ""), ("bold text here", "<w:b/>"), (" after", "")]]
+    )
+    package = _open(docx)
+    document = package.xml("word/document.xml")
+    ids = next_change_id(document)
+    replace_text(document, "bold text", "BOLD TEXT", ids, "Tester", utc_timestamp())
+    paragraph = _paragraphs(document)[0]
+    assert visible_text(paragraph) == "before BOLD TEXT here after"
+    insertion = paragraph.xpath(".//w:ins/w:r", namespaces=NSMAP)[0]
+    assert insertion.xpath("./w:rPr/w:b", namespaces=NSMAP)
+
+
 def test_replace_scopes_to_paragraph_contains(docx_factory) -> None:
     docx = docx_factory("doc.docx", [["target here"], ["target elsewhere"]])
     package = _open(docx)

@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from lxml import etree
+
 from docx_redline import comments as comments_mod
 from docx_redline import validate as validate_mod
 from docx_redline.ooxml import NSMAP, enable_tracking, next_change_id, utc_timestamp
@@ -27,7 +29,7 @@ def test_check_tracking_enabled_reflects_settings(docx_factory) -> None:
     assert report2.ok
 
 
-def test_check_no_bold_insertions_flags_bold_run(docx_factory) -> None:
+def test_check_no_formatting_insertions_flags_bold_run(docx_factory) -> None:
     docx = docx_factory("doc.docx", [["Hello world."]])
     package = DocxPackage(docx)
     document = package.xml("word/document.xml")
@@ -35,7 +37,141 @@ def test_check_no_bold_insertions_flags_bold_run(docx_factory) -> None:
     replace_text(document, "world", "there", ids, "Tester", utc_timestamp(), bold=True)
 
     report = validate_mod.ValidationReport()
-    validate_mod.check_no_bold_insertions(document, report)
+    validate_mod.check_no_formatting_insertions(document, report)
+    assert not report.ok
+
+
+def test_check_no_formatting_insertions_flags_preserved_italic(docx_factory) -> None:
+    docx = docx_factory("doc.docx", [[("Hello ", ""), ("world", "<w:i/>"), (".", "")]])
+    package = DocxPackage(docx)
+    document = package.xml("word/document.xml")
+    ids = next_change_id(document)
+    replace_text(document, "world", "there", ids, "Tester", utc_timestamp())
+
+    report = validate_mod.ValidationReport()
+    validate_mod.check_no_formatting_insertions(document, report)
+    assert not report.ok
+
+
+def test_check_no_formatting_insertions_passes_for_plain_insertion(
+    docx_factory,
+) -> None:
+    docx = docx_factory("doc.docx", [["Hello world."]])
+    package = DocxPackage(docx)
+    document = package.xml("word/document.xml")
+    ids = next_change_id(document)
+    replace_text(document, "world", "there", ids, "Tester", utc_timestamp())
+
+    report = validate_mod.ValidationReport()
+    validate_mod.check_no_formatting_insertions(document, report)
+    assert report.ok
+
+
+def test_check_run_properties_preserved_passes_when_untouched_text_unchanged(
+    docx_factory,
+) -> None:
+    original_docx = docx_factory(
+        "original.docx", [[("before ", ""), ("target", "<w:b/>"), (" after", "")]]
+    )
+    original = DocxPackage(original_docx).xml("word/document.xml")
+
+    edited_docx = docx_factory(
+        "edited.docx", [[("before ", ""), ("target", "<w:b/>"), (" after", "")]]
+    )
+    package = DocxPackage(edited_docx)
+    document = package.xml("word/document.xml")
+    ids = next_change_id(document)
+    replace_text(document, "target", "TARGET", ids, "Tester", utc_timestamp())
+
+    report = validate_mod.ValidationReport()
+    validate_mod.check_run_properties_preserved(document, original, report)
+    assert report.ok
+
+
+def test_check_run_properties_preserved_fails_when_untouched_text_reformatted(
+    docx_factory,
+) -> None:
+    original_docx = docx_factory(
+        "original.docx", [[("before ", ""), ("target", ""), (" after", "")]]
+    )
+    original = DocxPackage(original_docx).xml("word/document.xml")
+
+    # "before " is bold in the edited document even though it was untouched by
+    # any tracked change - simulates formatting corruption outside the edit.
+    edited_docx = docx_factory(
+        "edited.docx",
+        [[("before ", "<w:b/>"), ("target", ""), (" after", "")]],
+    )
+    package = DocxPackage(edited_docx)
+    document = package.xml("word/document.xml")
+
+    report = validate_mod.ValidationReport()
+    validate_mod.check_run_properties_preserved(document, original, report)
+    assert not report.ok
+
+
+def test_check_run_properties_preserved_skips_whole_paragraph_replacement(
+    docx_factory,
+) -> None:
+    original_docx = docx_factory("original.docx", [[("Old text.", "<w:i/>")]])
+    original = DocxPackage(original_docx).xml("word/document.xml")
+
+    edited_docx = docx_factory("edited.docx", [["Old text."]])
+    package = DocxPackage(edited_docx)
+    document = package.xml("word/document.xml")
+    ids = next_change_id(document)
+    paragraph = document.xpath(".//w:p", namespaces=NSMAP)[0]
+    replace_paragraph_text(paragraph, "New text.", ids, "Tester", utc_timestamp())
+
+    report = validate_mod.ValidationReport()
+    validate_mod.check_run_properties_preserved(document, original, report)
+    assert report.ok
+
+
+def test_check_run_properties_preserved_does_not_misalign_repeated_text(
+    docx_factory,
+) -> None:
+    # Two identical "A" characters, differently formatted. Replacing the
+    # first (bold) one must not have the surviving second (plain) one
+    # compared against the wrong original occurrence.
+    original_docx = docx_factory("original.docx", [[("A", "<w:b/>"), ("A", "")]])
+    original = DocxPackage(original_docx).xml("word/document.xml")
+
+    edited_docx = docx_factory("edited.docx", [[("A", "<w:b/>"), ("A", "")]])
+    package = DocxPackage(edited_docx)
+    document = package.xml("word/document.xml")
+    ids = next_change_id(document)
+    replace_text(document, "A", "B", ids, "Tester", utc_timestamp(), occurrence=0)
+
+    report = validate_mod.ValidationReport()
+    validate_mod.check_run_properties_preserved(document, original, report)
+    assert report.ok
+
+
+def _inject_table_cell_paragraph(document: etree._Element, rpr_xml: str) -> None:
+    rpr = f"<w:rPr>{rpr_xml}</w:rPr>" if rpr_xml else ""
+    table_xml = (
+        '<w:tbl xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">'
+        f"<w:tr><w:tc><w:p><w:r>{rpr}"
+        '<w:t xml:space="preserve">Cell text</w:t></w:r></w:p></w:tc></w:tr></w:tbl>'
+    )
+    body = document.find("w:body", namespaces=NSMAP)
+    body.insert(0, etree.fromstring(table_xml.encode("utf-8")))
+
+
+def test_check_run_properties_preserved_covers_table_paragraphs(docx_factory) -> None:
+    original_docx = docx_factory("original.docx", [["Body text."]])
+    original = DocxPackage(original_docx).xml("word/document.xml")
+    _inject_table_cell_paragraph(original, "")
+
+    edited_docx = docx_factory("edited.docx", [["Body text."]])
+    package = DocxPackage(edited_docx)
+    document = package.xml("word/document.xml")
+    # Untouched table-cell text reformatted outside any tracked change.
+    _inject_table_cell_paragraph(document, "<w:b/>")
+
+    report = validate_mod.ValidationReport()
+    validate_mod.check_run_properties_preserved(document, original, report)
     assert not report.ok
 
 
