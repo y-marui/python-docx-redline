@@ -95,9 +95,9 @@ API_KEY=your-api-key-here
 
 > **lite 版を導入している場合**：以下の手順が取り込む `.gitleaks.toml` /
 > `scripts/*.sh` / `.pre-commit-config.yaml` は `lite` ブランチには含まれない
-> （[scripts/lite-manifest.txt](scripts/lite-manifest.txt) の `[exclude]` 参照）。
-> Layer 2 の自動化（pre-commit フックによるチーム強制）が必要な場合は `main`
-> （full 版）を導入すること。lite のみを導入している場合は、本セクションの
+> （`scripts/publish-branch.sh` は full ブランチにのみこれらを同梱する）。
+> Layer 2 の自動化（pre-commit フックによるチーム強制）が必要な場合は `full`
+> 版を導入すること。lite のみを導入している場合は、本セクションの
 > 手順は実行できないため、Layer 1 の個人フックと「Manual Compliance Policy」
 > 節の手動遵守で代替する。
 
