@@ -90,16 +90,16 @@ repos:
         always_run: true
 
   # ----------------------------------------------------------------
-  # lite manifest check
-  # (every file listed in CHARTER_INDEX.md must be classified as
-  # include/exclude in scripts/lite-manifest.txt for the lite branch)
+  # charter manifest check
+  # (every file listed in src/CHARTER_INDEX.md must be tagged in
+  # scripts/charter-manifest.txt for the distribution branches)
   # ----------------------------------------------------------------
   - repo: local
     hooks:
-      - id: check-lite-manifest
-        name: Check lite manifest
+      - id: check-charter-manifest
+        name: Check charter manifest
         language: script
-        entry: scripts/check-lite-manifest.sh
+        entry: scripts/check-charter-manifest.sh
         pass_filenames: false
         always_run: true
   # END DEV-CHARTER ONLY
