@@ -38,6 +38,7 @@ make install
 | `add-comment` | 段落にWordコメントを付与する（`comments.xml` の配管も自動生成） |
 | `strip-comments` | すべてのコメントとその参照を削除する |
 | `strip-format-revisions` | 書式のみの変更履歴（`w:pPrChange`）を除去し、差分を見やすくする |
+| `accept-revisions` | 既存の変更履歴をすべて承諾した別ファイルを作る |
 | `enable-tracking` | Track Changes を有効化する |
 | `validate` | 納品前の安全確認（後述） |
 
@@ -63,6 +64,14 @@ docx-redline replace-batch draft.docx --pairs pairs.json --out draft-fix1.docx
 ```
 
 `all` / `occurrence` / `bold` / `paragraph_contains` を各要素に指定することもできる（`replace` の同名オプションと同じ意味）。
+
+### `accept-revisions`：既存の変更履歴を承諾したレビュー用コピーを作る
+
+```sh
+docx-redline accept-revisions draft.docx --out draft-accepted.docx
+```
+
+元ファイルを変更せず、本文・ヘッダー・フッター・脚注などの WordprocessingML パートに含まれる既存の挿入、削除、移動、および書式変更履歴を承諾する。コメントと無関係なパッケージ部品は保持する。出力には、承諾した変更と削除した空段落の件数を表示する。
 
 ### `validate`：納品前の安全確認
 

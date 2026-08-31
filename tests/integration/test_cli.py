@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from lxml import etree
 from typer.testing import CliRunner
 
 from docx_redline import comments as comments_mod
@@ -169,3 +170,39 @@ def test_inspect_command_prints_paragraphs(docx_factory) -> None:
 
     assert result.exit_code == 0
     assert "Hello there." in result.output
+
+
+def test_accept_revisions_command_processes_non_body_wordprocessingml_parts(
+    docx_factory, tmp_path: Path
+) -> None:
+    docx = docx_factory("doc.docx", [["Body text."]])
+    package = DocxPackage(docx)
+    body = package.xml("word/document.xml")
+    body_paragraph = body.xpath(".//w:p", namespaces=NSMAP)[0]
+    body_run = body_paragraph.xpath("./w:r", namespaces=NSMAP)[0]
+    body_insertion = etree.Element(
+        "{http://schemas.openxmlformats.org/wordprocessingml/2006/main}ins"
+    )
+    body_insertion.append(body_run)
+    body_paragraph.insert(0, body_insertion)
+    header = etree.fromstring(
+        b'<w:hdr xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">'
+        b'<w:p><w:del w:id="1"><w:r><w:delText>Old header.</w:delText></w:r></w:del>'
+        b"</w:p></w:hdr>"
+    )
+    package.new_xml("word/header1.xml", header)
+    source = tmp_path / "source.docx"
+    package.save(source)
+    source_settings = DocxPackage(source).raw("word/settings.xml")
+    out = tmp_path / "accepted.docx"
+
+    result = runner.invoke(app, ["accept-revisions", str(source), "--out", str(out)])
+
+    assert result.exit_code == 0, result.output
+    assert "1 insertion(s), 1 deletion(s)" in result.output
+    assert source.read_bytes() != out.read_bytes()
+    accepted = DocxPackage(out)
+    assert not accepted.xml("word/document.xml").xpath(".//w:ins", namespaces=NSMAP)
+    assert not accepted.xml("word/header1.xml").xpath(".//w:del", namespaces=NSMAP)
+    assert accepted.xml("word/header1.xml").xpath(".//w:p", namespaces=NSMAP) == []
+    assert accepted.raw("word/settings.xml") == source_settings
