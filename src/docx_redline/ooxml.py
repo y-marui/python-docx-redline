@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from copy import deepcopy
 from datetime import UTC, datetime
-from typing import cast
+from typing import Any, cast
 
 from lxml import etree
 
@@ -105,6 +105,36 @@ def make_change(
     wrapper = make_tracked_wrapper(kind, change_id, author, when)
     wrapper.append(make_run(rpr, value, deleted=(kind == "del")))
     return wrapper
+
+
+RprSignature = tuple[Any, ...]
+
+
+def rpr_signature(rpr: etree._Element | None) -> RprSignature:
+    """Canonical, order-independent signature of a w:rPr's effective formatting.
+
+    Two runs compare equal here exactly when Word would render them
+    identically: same bold/italic/underline/strike, vertical alignment
+    (sub/superscript), character style, fonts, size, color, and any other
+    w:rPr child. `w:rPrChange` is excluded because it records the *prior*
+    formatting for a tracked format-only change, not the run's current
+    appearance.
+    """
+    if rpr is None:
+        return ()
+
+    def canonical(element: etree._Element) -> RprSignature:
+        attrs = tuple(sorted(element.attrib.items()))
+        children = tuple(sorted(canonical(child) for child in element))
+        return (element.tag, attrs, children)
+
+    return tuple(
+        sorted(
+            canonical(child)
+            for child in rpr
+            if etree.QName(child).localname != "rPrChange"
+        )
+    )
 
 
 def apply_bold(rpr: etree._Element | None, bold: bool | None) -> etree._Element | None:

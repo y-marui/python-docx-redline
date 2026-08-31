@@ -32,14 +32,27 @@ SETTINGS = (
 )
 
 
-def _paragraph_xml(runs: Sequence[str]) -> str:
-    run_xml = "".join(
-        f'<w:r><w:t xml:space="preserve">{text}</w:t></w:r>' for text in runs
-    )
+RunSpec = str | tuple[str, str]
+"""A run is either plain text, or (text, rPr child XML) for formatted runs.
+
+e.g. `("bold", "<w:b/>")` or `("sup", '<w:vertAlign w:val="superscript"/>')`.
+"""
+
+
+def _run_xml(run: RunSpec) -> str:
+    if isinstance(run, tuple):
+        text, rpr_xml = run
+        rpr = f"<w:rPr>{rpr_xml}</w:rPr>" if rpr_xml else ""
+        return f'<w:r>{rpr}<w:t xml:space="preserve">{text}</w:t></w:r>'
+    return f'<w:r><w:t xml:space="preserve">{run}</w:t></w:r>'
+
+
+def _paragraph_xml(runs: Sequence[RunSpec]) -> str:
+    run_xml = "".join(_run_xml(run) for run in runs)
     return f"<w:p>{run_xml}</w:p>"
 
 
-def build_document_xml(paragraphs: Sequence[Sequence[str]]) -> bytes:
+def build_document_xml(paragraphs: Sequence[Sequence[RunSpec]]) -> bytes:
     body = "".join(_paragraph_xml(runs) for runs in paragraphs)
     xml = (
         '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
@@ -49,7 +62,7 @@ def build_document_xml(paragraphs: Sequence[Sequence[str]]) -> bytes:
     return xml.encode("utf-8")
 
 
-def write_docx(path: Path, paragraphs: Sequence[Sequence[str]]) -> Path:
+def write_docx(path: Path, paragraphs: Sequence[Sequence[RunSpec]]) -> Path:
     with zipfile.ZipFile(path, "w", zipfile.ZIP_DEFLATED) as archive:
         archive.writestr("[Content_Types].xml", CONTENT_TYPES)
         archive.writestr("_rels/.rels", ROOT_RELS)
@@ -61,7 +74,7 @@ def write_docx(path: Path, paragraphs: Sequence[Sequence[str]]) -> Path:
 
 @pytest.fixture
 def docx_factory(tmp_path: Path):
-    def _make(name: str, paragraphs: Sequence[Sequence[str]]) -> Path:
+    def _make(name: str, paragraphs: Sequence[Sequence[RunSpec]]) -> Path:
         return write_docx(tmp_path / name, paragraphs)
 
     return _make

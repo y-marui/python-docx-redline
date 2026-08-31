@@ -27,7 +27,7 @@ def test_check_tracking_enabled_reflects_settings(docx_factory) -> None:
     assert report2.ok
 
 
-def test_check_no_bold_insertions_flags_bold_run(docx_factory) -> None:
+def test_check_no_formatting_insertions_flags_bold_run(docx_factory) -> None:
     docx = docx_factory("doc.docx", [["Hello world."]])
     package = DocxPackage(docx)
     document = package.xml("word/document.xml")
@@ -35,8 +35,95 @@ def test_check_no_bold_insertions_flags_bold_run(docx_factory) -> None:
     replace_text(document, "world", "there", ids, "Tester", utc_timestamp(), bold=True)
 
     report = validate_mod.ValidationReport()
-    validate_mod.check_no_bold_insertions(document, report)
+    validate_mod.check_no_formatting_insertions(document, report)
     assert not report.ok
+
+
+def test_check_no_formatting_insertions_flags_preserved_italic(docx_factory) -> None:
+    docx = docx_factory("doc.docx", [[("Hello ", ""), ("world", "<w:i/>"), (".", "")]])
+    package = DocxPackage(docx)
+    document = package.xml("word/document.xml")
+    ids = next_change_id(document)
+    replace_text(document, "world", "there", ids, "Tester", utc_timestamp())
+
+    report = validate_mod.ValidationReport()
+    validate_mod.check_no_formatting_insertions(document, report)
+    assert not report.ok
+
+
+def test_check_no_formatting_insertions_passes_for_plain_insertion(
+    docx_factory,
+) -> None:
+    docx = docx_factory("doc.docx", [["Hello world."]])
+    package = DocxPackage(docx)
+    document = package.xml("word/document.xml")
+    ids = next_change_id(document)
+    replace_text(document, "world", "there", ids, "Tester", utc_timestamp())
+
+    report = validate_mod.ValidationReport()
+    validate_mod.check_no_formatting_insertions(document, report)
+    assert report.ok
+
+
+def test_check_run_properties_preserved_passes_when_untouched_text_unchanged(
+    docx_factory,
+) -> None:
+    original_docx = docx_factory(
+        "original.docx", [[("before ", ""), ("target", "<w:b/>"), (" after", "")]]
+    )
+    original = DocxPackage(original_docx).xml("word/document.xml")
+
+    edited_docx = docx_factory(
+        "edited.docx", [[("before ", ""), ("target", "<w:b/>"), (" after", "")]]
+    )
+    package = DocxPackage(edited_docx)
+    document = package.xml("word/document.xml")
+    ids = next_change_id(document)
+    replace_text(document, "target", "TARGET", ids, "Tester", utc_timestamp())
+
+    report = validate_mod.ValidationReport()
+    validate_mod.check_run_properties_preserved(document, original, report)
+    assert report.ok
+
+
+def test_check_run_properties_preserved_fails_when_untouched_text_reformatted(
+    docx_factory,
+) -> None:
+    original_docx = docx_factory(
+        "original.docx", [[("before ", ""), ("target", ""), (" after", "")]]
+    )
+    original = DocxPackage(original_docx).xml("word/document.xml")
+
+    # "before " is bold in the edited document even though it was untouched by
+    # any tracked change - simulates formatting corruption outside the edit.
+    edited_docx = docx_factory(
+        "edited.docx",
+        [[("before ", "<w:b/>"), ("target", ""), (" after", "")]],
+    )
+    package = DocxPackage(edited_docx)
+    document = package.xml("word/document.xml")
+
+    report = validate_mod.ValidationReport()
+    validate_mod.check_run_properties_preserved(document, original, report)
+    assert not report.ok
+
+
+def test_check_run_properties_preserved_skips_whole_paragraph_replacement(
+    docx_factory,
+) -> None:
+    original_docx = docx_factory("original.docx", [[("Old text.", "<w:i/>")]])
+    original = DocxPackage(original_docx).xml("word/document.xml")
+
+    edited_docx = docx_factory("edited.docx", [["Old text."]])
+    package = DocxPackage(edited_docx)
+    document = package.xml("word/document.xml")
+    ids = next_change_id(document)
+    paragraph = document.xpath(".//w:p", namespaces=NSMAP)[0]
+    replace_paragraph_text(paragraph, "New text.", ids, "Tester", utc_timestamp())
+
+    report = validate_mod.ValidationReport()
+    validate_mod.check_run_properties_preserved(document, original, report)
+    assert report.ok
 
 
 def test_check_max_deletion_length_flags_long_deletion(docx_factory) -> None:

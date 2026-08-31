@@ -7,7 +7,16 @@ from copy import deepcopy
 from lxml import etree
 
 from .errors import RedlineError
-from .ooxml import NSMAP, IdAllocator, apply_bold, make_run, make_tracked_wrapper, w
+from .ooxml import (
+    NSMAP,
+    IdAllocator,
+    RprSignature,
+    apply_bold,
+    make_run,
+    make_tracked_wrapper,
+    rpr_signature,
+    w,
+)
 
 Segment = list[tuple[etree._Element, etree._Element, str]]
 
@@ -95,6 +104,7 @@ def _apply_replacement(
     first_index = last_index = -1
     first_offset = last_offset = 0
     deleted_parts: list[tuple[str, etree._Element | None]] = []
+    signatures: set[RprSignature] = set()
     for run_index, (run, _, text) in enumerate(segment):
         run_start, run_end = cursor, cursor + len(text)
         overlap_start, overlap_end = max(start, run_start), min(end, run_end)
@@ -103,6 +113,7 @@ def _apply_replacement(
                 first_index, first_offset = run_index, overlap_start - run_start
             last_index, last_offset = run_index, overlap_end - run_start
             rpr = run.find("w:rPr", namespaces=NSMAP)
+            signatures.add(rpr_signature(rpr))
             deleted_parts.append(
                 (
                     text[overlap_start - run_start : overlap_end - run_start],
@@ -112,6 +123,14 @@ def _apply_replacement(
         cursor = run_end
     if first_index < 0:
         raise RedlineError("could not map replacement span onto runs")
+    if len(signatures) > 1:
+        raise RedlineError(
+            f"cannot replace {old!r}: the match spans runs with different "
+            "formatting (bold, italic, underline, font, character style, etc.). "
+            "Auto-replacement across a formatting boundary is refused to avoid "
+            "silently changing formatting outside the intended edit - narrow "
+            "the match to a single formatting run, or edit this span manually."
+        )
 
     first_run, _, first_text = segment[first_index]
     last_run, _, last_text = segment[last_index]
@@ -163,6 +182,10 @@ def replace_text(
     By default exactly one match must exist across the whole document (a safety
     net against silently editing the wrong occurrence). Pass `occurrence` to pick
     one match by index, or `all_occurrences=True` to replace every match.
+
+    A match that spans runs with different formatting is refused with a
+    `RedlineError` before anything is written, rather than silently applying
+    one run's formatting across the whole span.
     """
     if not old:
         raise RedlineError("old text must not be empty")

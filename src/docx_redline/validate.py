@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import difflib
 import re
 import zipfile
 from dataclasses import dataclass, field
@@ -11,7 +12,7 @@ from typing import cast
 from lxml import etree
 
 from .comments import list_comments
-from .ooxml import NSMAP
+from .ooxml import NSMAP, RprSignature, rpr_signature
 from .package import DocxPackage
 
 
@@ -76,16 +77,102 @@ def check_has_changes(
     )
 
 
-def check_no_bold_insertions(
+_INSERTION_FORMATTING_TAGS = (
+    "b",
+    "bCs",
+    "i",
+    "iCs",
+    "u",
+    "strike",
+    "dstrike",
+    "vertAlign",
+    "rStyle",
+)
+
+
+def check_no_formatting_insertions(
     document: etree._Element, report: ValidationReport
 ) -> None:
-    offenders = document.xpath(".//w:ins//w:b | .//w:ins//w:bCs", namespaces=NSMAP)
+    """Flag any inserted text carrying notable run formatting for manual review.
+
+    Covers bold, italic, underline, strike, subscript/superscript (vertAlign),
+    and character style (rStyle) - always, whether it came from an explicit
+    --bold-style override or was preserved from the replaced text. This is a
+    conservative pre-delivery check, not an attempt to guess intent. Font,
+    size, and color are intentionally excluded: replacements routinely carry
+    those over from the source run (e.g. CJK font hints) and flagging every
+    such insertion would make the check useless in practice.
+    """
+    offenders: list[tuple[str, etree._Element]] = []
+    for tag in _INSERTION_FORMATTING_TAGS:
+        offenders.extend(
+            (tag, node)
+            for node in document.xpath(f".//w:ins//w:{tag}", namespaces=NSMAP)
+        )
     detail = (
-        "no inserted text is bold"
+        "no inserted text carries notable formatting"
         if not offenders
-        else f"{len(offenders)} bold run(s) inside w:ins"
+        else "formatting inside w:ins: "
+        + ", ".join(sorted({tag for tag, _ in offenders}))
+        + f" ({len(offenders)} run(s))"
     )
-    report.add("no-bold-insertions", not offenders, detail)
+    report.add("no-formatting-insertions", not offenders, detail)
+
+
+def _untouched_signal(paragraph: etree._Element) -> list[tuple[str, RprSignature]]:
+    """(char, formatting signature) for text outside w:ins, in document order."""
+    signal: list[tuple[str, RprSignature]] = []
+    for text_node in paragraph.xpath(".//w:t", namespaces=NSMAP):
+        if text_node.xpath("ancestor::w:ins", namespaces=NSMAP):
+            continue
+        run = text_node.getparent()
+        rpr = run.find("w:rPr", namespaces=NSMAP) if run is not None else None
+        signature = rpr_signature(rpr)
+        signal.extend((ch, signature) for ch in text_node.text or "")
+    return signal
+
+
+def check_run_properties_preserved(
+    document: etree._Element, original: etree._Element, report: ValidationReport
+) -> None:
+    """Text left untouched by tracked changes must keep its original formatting.
+
+    Compares, paragraph by paragraph, the formatting of surviving (non-inserted)
+    text against the same text in `original`. Only text the alignment can place
+    in an unbroken, unambiguous match is checked - anything else is skipped
+    rather than risking a false failure (e.g. a whole-paragraph replacement
+    leaves nothing untouched to compare, and is silently skipped).
+    """
+    problems: list[str] = []
+    for index, (current_p, original_p) in enumerate(
+        zip(_body_paragraphs(document), _body_paragraphs(original), strict=False)
+    ):
+        current_signal = _untouched_signal(current_p)
+        original_signal = _untouched_signal(original_p)
+        matcher = difflib.SequenceMatcher(
+            None,
+            [ch for ch, _ in original_signal],
+            [ch for ch, _ in current_signal],
+            autojunk=False,
+        )
+        for tag, i1, i2, j1, _ in matcher.get_opcodes():
+            if tag != "equal":
+                continue
+            for offset in range(i2 - i1):
+                orig_char, orig_sig = original_signal[i1 + offset]
+                _, cur_sig = current_signal[j1 + offset]
+                if orig_sig != cur_sig:
+                    problems.append(
+                        f"paragraph {index}: formatting changed on "
+                        f"unedited text {orig_char!r}"
+                    )
+    detail = (
+        "untouched text keeps its original formatting"
+        if not problems
+        else f"{len(problems)} formatting change(s) on unedited text: "
+        + "; ".join(problems[:5])
+    )
+    report.add("run-properties-preserved", not problems, detail)
 
 
 def check_max_deletion_length(
