@@ -22,7 +22,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from .errors import RedlineError
-from .ooxml import NSMAP, w
+from .ooxml import NSMAP, qn, w
 from .package import DocxPackage
 
 Runner = Callable[[list[str]], "subprocess.CompletedProcess[str]"]
@@ -49,6 +49,42 @@ class WordVerifyResult:
 
 
 _FONT_ATTRS = ("ascii", "hAnsi", "eastAsia", "cs")
+_FONT_THEME_ATTRS = ("asciiTheme", "hAnsiTheme", "eastAsiaTheme", "cstheme")
+_DRAWINGML_NS = "http://schemas.openxmlformats.org/drawingml/2006/main"
+_THEME_SLOTS = (
+    ("latin", "Ascii"),
+    ("latin", "HAnsi"),
+    ("ea", "EastAsia"),
+    ("cs", "Bidi"),
+)
+
+
+def _theme_font_map(package: DocxPackage) -> dict[str, str]:
+    """Map theme font slot names (e.g. "minorHAnsi", "majorEastAsia") to the
+    concrete typeface `word/theme/theme*.xml` resolves them to.
+
+    `w:rFonts` commonly references a font indirectly via `asciiTheme`/
+    `hAnsiTheme`/`eastAsiaTheme`/`cstheme` (e.g. `w:asciiTheme="minorHAnsi"`)
+    rather than naming a typeface directly - this is in fact how most
+    real-world Word documents declare their body/heading fonts, via
+    docDefaults. Without resolving these, the font audit would silently miss
+    the actual declared font for most documents.
+    """
+    mapping: dict[str, str] = {}
+    for name in package.all_part_names():
+        if not name.startswith("word/theme/") or not name.endswith(".xml"):
+            continue
+        root = package.xml(name)
+        for scheme_tag, prefix in (("majorFont", "major"), ("minorFont", "minor")):
+            scheme = root.find(f".//{qn(_DRAWINGML_NS, scheme_tag)}")
+            if scheme is None:
+                continue
+            for element_tag, slot_suffix in _THEME_SLOTS:
+                element = scheme.find(qn(_DRAWINGML_NS, element_tag))
+                typeface = element.get("typeface") if element is not None else None
+                if typeface:
+                    mapping[f"{prefix}{slot_suffix}"] = typeface
+    return mapping
 
 
 def audit_declared_fonts(package: DocxPackage) -> set[str]:
@@ -56,11 +92,16 @@ def audit_declared_fonts(package: DocxPackage) -> set[str]:
 
     Covers `word/styles.xml` (default/style-level fonts, e.g. docDefaults and
     named styles) and `word/document.xml` (run-level overrides) - the two
-    parts the issue asks this static audit to cover. Declarations alone
-    can't prove Word didn't substitute an unavailable font at render time;
-    that's what the Word-rendered PDF is for.
+    parts the issue asks this static audit to cover. Theme-referenced fonts
+    (`asciiTheme`/`hAnsiTheme`/`eastAsiaTheme`/`cstheme`) are resolved via
+    `word/theme/theme*.xml`; a theme slot that can't be resolved (e.g. no
+    theme part) is included by its raw slot name rather than silently
+    dropped. Declarations alone can't prove Word didn't substitute an
+    unavailable font at render time; that's what the Word-rendered PDF is
+    for.
     """
     fonts: set[str] = set()
+    theme_map = _theme_font_map(package)
     part_names = ["word/document.xml"]
     if package.has_part("word/styles.xml"):
         part_names.append("word/styles.xml")
@@ -71,6 +112,10 @@ def audit_declared_fonts(package: DocxPackage) -> set[str]:
                 value = rfonts.get(w(attr))
                 if value:
                     fonts.add(value)
+            for attr in _FONT_THEME_ATTRS:
+                slot = rfonts.get(w(attr))
+                if slot:
+                    fonts.add(theme_map.get(slot, slot))
     return fonts
 
 
@@ -91,35 +136,50 @@ def _check_word_available(runner: Runner) -> None:
         )
 
 
-def _applescript(input_path: Path, pdf_path: Path) -> str:
-    """AppleScript that opens `input_path` read-only, repaginates it, exports
-    `pdf_path`, and closes without saving - the input is never modified.
+def _applescript() -> str:
+    """AppleScript that opens argv[1] (input) read-only, repaginates it,
+    exports argv[2] (PDF), and closes without saving - the input is never
+    modified.
 
-    Uses Word's `compute statistics ... statistic pages` command for the
-    repaginated page count and `save as ... file format format PDF` for the
-    export, per Microsoft Word's AppleScript scripting dictionary.
+    Paths are passed as `on run argv` arguments rather than interpolated
+    into the script source text, so a path containing a quote or other
+    AppleScript-significant character can't corrupt or inject into the
+    script (see `_run_applescript`, which passes them as osascript
+    arguments).
+
+    Uses Word's `open file name ... with read only` and `compute statistics
+    ... statistic pages` for the repaginated page count, and `save as ...
+    file format format PDF` for the export, per Microsoft Word's AppleScript
+    scripting dictionary. Computing statistics or exporting is wrapped in a
+    `try` so the document is still closed if either fails, rather than
+    left open in the user's Word session.
     """
-    return f'''
-on run
-    set inputPath to POSIX file "{input_path}"
-    set pdfPath to POSIX file "{pdf_path}"
+    return """
+on run argv
+    set inputPath to item 1 of argv
+    set pdfPath to item 2 of argv
     tell application "Microsoft Word"
         set wordVersion to version
-        set theDoc to open inputPath with read only
-        set pageCount to compute statistics theDoc statistic statistic pages
-        save as theDoc file name pdfPath file format format PDF
+        set theDoc to open file name inputPath with read only
+        try
+            set pageCount to compute statistics theDoc statistic statistic pages
+            save as theDoc file name pdfPath file format format PDF
+        on error errMsg
+            close theDoc saving no
+            error errMsg
+        end try
         close theDoc saving no
     end tell
     return wordVersion & "|" & pageCount
 end run
-'''.strip()
+""".strip()
 
 
 def _run_applescript(
     input_path: Path, pdf_path: Path, runner: Runner
 ) -> tuple[str, int]:
-    script = _applescript(input_path, pdf_path)
-    result = runner(["osascript", "-e", script])
+    script = _applescript()
+    result = runner(["osascript", "-e", script, str(input_path), str(pdf_path)])
     if result.returncode != 0:
         detail = result.stderr.strip() or result.stdout.strip()
         raise RedlineError(f"Microsoft Word export failed: {detail}")
@@ -140,6 +200,8 @@ def _rasterize_pdf(pdf_path: Path, png_dir: Path, runner: Runner) -> list[str]:
         )
     png_dir.mkdir(parents=True, exist_ok=True)
     prefix = png_dir / "page"
+    for stale in png_dir.glob("page-*.png"):
+        stale.unlink()
     result = runner(["pdftoppm", "-png", "-r", "150", str(pdf_path), str(prefix)])
     if result.returncode != 0:
         raise RedlineError(f"pdftoppm failed: {result.stderr.strip()}")
@@ -165,6 +227,13 @@ def verify_word(
     it's reported on the returned result (`.ok`), matching how `validate`
     reports check failures without aborting before showing the rest.
     """
+    # Word resolves a relative "file name" against its own notion of the
+    # current location (its last-used folder, iCloud Drive, etc.), not this
+    # process's working directory - resolve to an absolute path so Word
+    # reads/writes exactly where the caller meant, regardless of that.
+    input_path = input_path.resolve()
+    pdf_path = pdf_path.resolve()
+
     run = runner or _default_runner
     _check_platform()
     _check_word_available(run)

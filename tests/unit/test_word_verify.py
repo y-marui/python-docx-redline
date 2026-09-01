@@ -74,6 +74,53 @@ def test_audit_declared_fonts_empty_when_none_declared(docx_factory) -> None:
     assert audit_declared_fonts(package) == set()
 
 
+def _add_theme(package: DocxPackage, *, minor_latin: str, major_latin: str) -> None:
+    theme = etree.fromstring(
+        b'<a:theme xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main">'
+        b"<a:themeElements><a:fontScheme>"
+        b'<a:majorFont><a:latin typeface="'
+        + major_latin.encode()
+        + b'"/></a:majorFont>'
+        b'<a:minorFont><a:latin typeface="'
+        + minor_latin.encode()
+        + b'"/></a:minorFont>'
+        b"</a:fontScheme></a:themeElements></a:theme>"
+    )
+    package.new_xml("word/theme/theme1.xml", theme)
+
+
+def test_audit_declared_fonts_resolves_theme_referenced_fonts(docx_factory) -> None:
+    # docDefaults commonly reference a font via asciiTheme/hAnsiTheme rather
+    # than naming a typeface directly - this is how most real Word documents
+    # declare their body font.
+    docx = docx_factory("doc.docx", [["Plain text."]])
+    package = DocxPackage(docx)
+    styles = etree.fromstring(
+        f"<w:styles {_W}><w:docDefaults><w:rPrDefault><w:rPr>"
+        f'<w:rFonts w:asciiTheme="minorHAnsi" w:hAnsiTheme="minorHAnsi"/>'
+        f"</w:rPr></w:rPrDefault></w:docDefaults></w:styles>".encode()
+    )
+    package.new_xml("word/styles.xml", styles)
+    _add_theme(package, minor_latin="Calibri", major_latin="Calibri Light")
+
+    fonts = audit_declared_fonts(package)
+
+    assert fonts == {"Calibri"}
+
+
+def test_audit_declared_fonts_keeps_unresolvable_theme_slot_name(
+    docx_factory,
+) -> None:
+    # No theme part exists to resolve "minorHAnsi" against - the raw slot
+    # name is kept rather than the declaration being silently dropped.
+    docx = docx_factory(
+        "doc.docx", [[("Body", '<w:rFonts w:asciiTheme="minorHAnsi"/>')]]
+    )
+    package = DocxPackage(docx)
+
+    assert audit_declared_fonts(package) == {"minorHAnsi"}
+
+
 # --- platform / Word availability checks -------------------------------------
 
 
@@ -105,13 +152,27 @@ def test_check_word_available_passes_when_osascript_succeeds() -> None:
 # --- AppleScript construction and output parsing -----------------------------
 
 
-def test_applescript_embeds_input_and_pdf_paths() -> None:
-    script = _applescript(Path("/tmp/in.docx"), Path("/tmp/out.pdf"))
-    assert "/tmp/in.docx" in script
-    assert "/tmp/out.pdf" in script
-    assert "with read only" in script
+def test_applescript_takes_paths_as_argv_not_source_text() -> None:
+    # Paths must never be interpolated into the script source - a path
+    # containing a quote could otherwise corrupt or inject into the script.
+    script = _applescript()
+    assert "/tmp/in.docx" not in script
+    assert "item 1 of argv" in script
+    assert "item 2 of argv" in script
+    assert "open file name inputPath with read only" in script
     assert "format PDF" in script
     assert "close theDoc saving no" in script
+
+
+def test_run_applescript_passes_paths_as_osascript_arguments() -> None:
+    runner = _FakeRunner(results=[_FakeResult(returncode=0, stdout="16.78|3\n")])
+    quoted_path = Path('/tmp/a "quoted" file.docx')
+    _run_applescript(quoted_path, Path("out.pdf"), runner)
+    args = runner.calls[0]
+    assert args[0] == "osascript"
+    assert args[-2:] == [str(quoted_path), "out.pdf"]
+    # The path text itself is not embedded in the script argument.
+    assert str(quoted_path) not in args[2]
 
 
 def test_run_applescript_parses_version_and_page_count() -> None:
@@ -165,6 +226,31 @@ def test_rasterize_pdf_returns_sorted_generated_pages(
     assert paths == [str(png_dir / "page-1.png"), str(png_dir / "page-2.png")]
 
 
+def test_rasterize_pdf_removes_stale_pages_from_a_previous_larger_run(
+    monkeypatch, tmp_path: Path
+) -> None:
+    # A previous run with more pages left page-3.png/page-4.png behind; a
+    # new, shorter PDF's run must not report them as current output.
+    monkeypatch.setattr(
+        "docx_redline.word_verify.shutil.which", lambda name: "/usr/local/bin/pdftoppm"
+    )
+    png_dir = tmp_path / "png"
+    png_dir.mkdir()
+    for stale in ("page-1.png", "page-2.png", "page-3.png", "page-4.png"):
+        (png_dir / stale).write_bytes(b"stale")
+
+    def fake_run(args: list[str]) -> _FakeResult:
+        (png_dir / "page-1.png").write_bytes(b"fresh")
+        (png_dir / "page-2.png").write_bytes(b"fresh")
+        return _FakeResult(returncode=0)
+
+    paths = _rasterize_pdf(tmp_path / "in.pdf", png_dir, fake_run)
+
+    assert paths == [str(png_dir / "page-1.png"), str(png_dir / "page-2.png")]
+    assert not (png_dir / "page-3.png").exists()
+    assert not (png_dir / "page-4.png").exists()
+
+
 def test_rasterize_pdf_raises_on_pdftoppm_failure(monkeypatch, tmp_path: Path) -> None:
     monkeypatch.setattr(
         "docx_redline.word_verify.shutil.which", lambda name: "/usr/local/bin/pdftoppm"
@@ -198,6 +284,33 @@ def test_verify_word_returns_result_and_writes_pdf_hash(
     assert result.pdf_path == str(pdf_path)
     assert result.ok
     assert result.declared_fonts == []
+
+
+def test_verify_word_resolves_relative_pdf_path_before_passing_to_word(
+    monkeypatch, docx_factory, tmp_path: Path
+) -> None:
+    # Word resolves a relative "file name" against its own notion of the
+    # current location, not this process's cwd - a relative --pdf must be
+    # made absolute before reaching osascript, or the PDF can land somewhere
+    # the caller never asked for.
+    monkeypatch.setattr("docx_redline.word_verify.platform.system", lambda: "Darwin")
+    monkeypatch.chdir(tmp_path)
+    docx = docx_factory("doc.docx", [["Plain text."]])
+    package = DocxPackage(docx)
+    relative_pdf = Path("out.pdf")
+    seen_pdf_arg: list[str] = []
+
+    def fake_run(args: list[str]) -> _FakeResult:
+        if args[0] == "osascript" and "id of application" in args[2]:
+            return _FakeResult(returncode=0)
+        seen_pdf_arg.append(args[-1])
+        (tmp_path / "out.pdf").write_bytes(b"%PDF-fake")
+        return _FakeResult(returncode=0, stdout="16.78|1")
+
+    result = verify_word(docx, relative_pdf, package=package, runner=fake_run)
+
+    assert seen_pdf_arg == [str((tmp_path / "out.pdf").resolve())]
+    assert result.pdf_path == str((tmp_path / "out.pdf").resolve())
 
 
 def test_verify_word_reports_missing_required_font_without_raising(

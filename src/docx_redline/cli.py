@@ -468,6 +468,7 @@ def verify_word_cmd(
     didn't substitute an unavailable font.
     """
     package = DocxPackage(input_path)
+    pdf.parent.mkdir(parents=True, exist_ok=True)
     try:
         result = word_verify_mod.verify_word(
             input_path,
