@@ -20,6 +20,10 @@ class DocxPackage:
             }
         self._roots: dict[str, etree._Element] = {}
         self._extra_names: list[str] = []
+        # A snapshot of what an untouched round-trip (parse then reserialize)
+        # of each part looked like, taken the moment it's first parsed - see
+        # `_current_bytes`.
+        self._unmodified_snapshots: dict[str, bytes] = {}
 
     def has_part(self, name: str) -> bool:
         return name in self._parts
@@ -33,6 +37,7 @@ class DocxPackage:
     def xml(self, name: str) -> etree._Element:
         if name not in self._roots:
             self._roots[name] = etree.fromstring(self._parts[name])
+            self._unmodified_snapshots[name] = xml_bytes(self._roots[name])
         return self._roots[name]
 
     def editable_text_parts(self) -> list[tuple[str, etree._Element]]:
@@ -63,10 +68,21 @@ class DocxPackage:
     def delete_part(self, name: str) -> None:
         self._parts.pop(name, None)
         self._roots.pop(name, None)
+        self._unmodified_snapshots.pop(name, None)
 
     def _current_bytes(self, name: str) -> bytes:
         if name in self._roots:
-            return xml_bytes(self._roots[name])
+            serialized = xml_bytes(self._roots[name])
+            # A part gets parsed (via `xml()`) whenever it's *searched* -
+            # e.g. every editable_text_parts() part, for a multi-part
+            # replace - not only when it's actually edited. Re-serializing
+            # every parsed part unconditionally would rewrite genuinely
+            # untouched parts' declarations/whitespace on every save. If
+            # nothing changed since the first parse, return the original
+            # bytes verbatim instead.
+            if self._unmodified_snapshots.get(name) == serialized:
+                return self._parts[name]
+            return serialized
         return self._parts[name]
 
     def save(self, out_path: Path) -> None:

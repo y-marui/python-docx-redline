@@ -64,24 +64,31 @@ def _paragraph_info(
     )
 
 
-def _containers(root: etree._Element) -> list[tuple[etree._Element, str]]:
-    """The (container, location-prefix) pairs to walk for paragraphs in `root`.
+def _containers(root: etree._Element) -> list[tuple[etree._Element, str | None]]:
+    """The (container, note_id) pairs to walk for paragraphs in `root`.
 
-    - `word/document.xml`: a single container, the `w:body`.
-    - headers/footers (`w:hdr`/`w:ftr`): the root itself is the container -
-      their paragraphs sit directly under it, same as a document body.
+    - `word/document.xml`: a single container, the `w:body`, `note_id=None`.
+    - headers/footers (`w:hdr`/`w:ftr`): the root itself is the container,
+      `note_id=None` - their paragraphs sit directly under it, same as a
+      document body.
     - footnotes/endnotes (`w:footnotes`/`w:endnotes`): one container per
-      `w:footnote`/`w:endnote` child, labeled by its `w:id` so a paragraph can
-      be traced back to which note it's in.
+      `w:footnote`/`w:endnote` child, `note_id` set from its `w:id` so a
+      paragraph can be traced back to which note it's in.
+
+    `note_id` is `None` (rather than e.g. `"body"`) for the document/header/
+    footer case specifically so `inspect_document`'s established `location`
+    values ("body", "table-N") for a document-body paragraph are unchanged -
+    `docs/specification.md` documents `table-N` as a stable, machine-readable
+    contract.
     """
     local = etree.QName(root).localname
     if local == "document":
         body = root.find("w:body", namespaces=NSMAP)
         if body is None:
             raise ValueError("word/document.xml has no w:body")
-        return [(body, "body")]
+        return [(body, None)]
     if local in ("hdr", "ftr"):
-        return [(root, "body")]
+        return [(root, None)]
     if local in ("footnotes", "endnotes"):
         note_tag = "footnote" if local == "footnotes" else "endnote"
         return [
@@ -96,16 +103,22 @@ def inspect_document(
 ) -> list[ParagraphInfo]:
     infos: list[ParagraphInfo] = []
     index = 0
-    for container, location_prefix in _containers(root):
+    for container, note_id in _containers(root):
         table_number = 0
         for element in container:
             local = etree.QName(element).localname
             if local == "p":
-                paragraphs, location = [element], location_prefix
+                paragraphs = [element]
+                location = note_id if note_id is not None else "body"
             elif local == "tbl":
                 table_number += 1
                 paragraphs = element.xpath(".//w:p", namespaces=NSMAP)
-                location = f"{location_prefix}/table-{table_number}"
+                table_location = f"table-{table_number}"
+                location = (
+                    f"{note_id}/{table_location}"
+                    if note_id is not None
+                    else table_location
+                )
             else:
                 continue
             for paragraph in paragraphs:
