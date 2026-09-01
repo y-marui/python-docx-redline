@@ -262,6 +262,66 @@ def test_inspect_command_prints_paragraphs(docx_factory) -> None:
     assert "Hello there." in result.output
 
 
+def _docx_with_header(docx_factory, tmp_path: Path, header_text: str) -> Path:
+    docx = docx_factory("doc.docx", [["Body text."]])
+    package = DocxPackage(docx)
+    header = etree.fromstring(
+        b'<w:hdr xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">'
+        b"<w:p><w:r><w:t>" + header_text.encode() + b"</w:t></w:r></w:p></w:hdr>"
+    )
+    package.new_xml("word/header1.xml", header)
+    source = tmp_path / "source.docx"
+    package.save(source)
+    return source
+
+
+def test_inspect_json_command_reports_part_for_header_paragraph(
+    docx_factory, tmp_path: Path
+) -> None:
+    docx = _docx_with_header(docx_factory, tmp_path, "Header text.")
+
+    result = runner.invoke(app, ["inspect", str(docx), "--json"])
+
+    assert result.exit_code == 0, result.output
+    infos = json.loads(result.output)
+    parts = {info["part"] for info in infos}
+    assert parts == {"word/document.xml", "word/header1.xml"}
+
+
+def test_replace_command_part_option_targets_header(
+    docx_factory, tmp_path: Path
+) -> None:
+    docx = _docx_with_header(docx_factory, tmp_path, "Body text.")
+    out = tmp_path / "out.docx"
+
+    result = runner.invoke(
+        app,
+        [
+            "replace",
+            str(docx),
+            "Body text.",
+            "Header heading.",
+            "--out",
+            str(out),
+            "--author",
+            "Test Agent",
+            "--part",
+            "word/header1.xml",
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    package = DocxPackage(out)
+    header_paragraph = package.xml("word/header1.xml").xpath(
+        ".//w:p", namespaces=NSMAP
+    )[0]
+    body_paragraph = package.xml("word/document.xml").xpath(".//w:p", namespaces=NSMAP)[
+        0
+    ]
+    assert visible_text(header_paragraph) == "Header heading."
+    assert visible_text(body_paragraph) == "Body text."
+
+
 def test_verify_word_command_reports_ok_result_as_json(
     monkeypatch, docx_factory, tmp_path: Path
 ) -> None:

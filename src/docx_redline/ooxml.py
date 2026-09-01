@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Iterable
 from copy import deepcopy
 from datetime import UTC, datetime
 from typing import Any, cast
@@ -50,13 +51,23 @@ class IdAllocator:
         return value
 
 
-def next_change_id(document: etree._Element) -> IdAllocator:
+def next_change_id(
+    documents: etree._Element | Iterable[etree._Element],
+) -> IdAllocator:
+    """Seed an allocator past every `w:id` already used in `documents`.
+
+    Accepts either a single part root or several (e.g. the document body plus
+    headers/footers/footnotes/endnotes), so ids stay unique across every part
+    a multi-part edit might touch, not just the one being scanned.
+    """
+    roots = [documents] if isinstance(documents, etree._Element) else documents
     ids: list[int] = []
-    for element in document.xpath(".//*[@w:id]", namespaces=NSMAP):
-        try:
-            ids.append(int(element.get(w("id"))))
-        except (TypeError, ValueError):
-            continue
+    for document in roots:
+        for element in document.xpath(".//*[@w:id]", namespaces=NSMAP):
+            try:
+                ids.append(int(element.get(w("id"))))
+            except (TypeError, ValueError):
+                continue
     return IdAllocator(max(ids, default=0) + 1)
 
 

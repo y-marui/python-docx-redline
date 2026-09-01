@@ -13,7 +13,7 @@ from . import validate as validate_mod
 from . import word_verify as word_verify_mod
 from .cleanup import AcceptedRevisions, accept_revisions, strip_format_revisions
 from .errors import RedlineError
-from .inspect import inspect_document
+from .inspect import inspect_package
 from .ooxml import IdAllocator, enable_tracking, next_change_id, utc_timestamp
 from .package import DocxPackage
 from .text_ops import (
@@ -70,10 +70,15 @@ def _wordprocessingml_roots(
     return roots
 
 
-def _prepare_edit(package: DocxPackage) -> tuple[etree._Element, IdAllocator, str]:
-    document = _document(package)
+def _prepare_edit(
+    package: DocxPackage,
+) -> tuple[list[tuple[str, etree._Element]], IdAllocator, str]:
+    """Ready every editable text part (body, headers/footers, footnotes/endnotes)
+    for `replace`/`replace-batch`/`replace-paragraph`/`insert-paragraph`."""
+    parts = package.editable_text_parts()
     enable_tracking(package.xml("word/settings.xml"))
-    return document, next_change_id(document), utc_timestamp()
+    ids = next_change_id([root for _, root in parts])
+    return parts, ids, utc_timestamp()
 
 
 @app.command()
@@ -83,9 +88,13 @@ def inspect(
         False, "--json", help="Print machine-readable JSON."
     ),
 ) -> None:
-    """Dump paragraphs with style, breaks, and revision-aware text."""
+    """Dump paragraphs with style, breaks, and revision-aware text.
+
+    Covers every editable text part: the main document plus headers,
+    footers, footnotes, and endnotes.
+    """
     package = DocxPackage(input_path)
-    infos = inspect_document(_document(package))
+    infos = inspect_package(package)
     if json_output:
         typer.echo(
             json.dumps([info.__dict__ for info in infos], ensure_ascii=False, indent=2)
@@ -93,7 +102,7 @@ def inspect(
         return
     for info in infos:
         typer.echo(
-            f"P{info.index:03d} {info.location} style={info.style!r} "
+            f"P{info.index:03d} [{info.part}] {info.location} style={info.style!r} "
             f"page_break={info.page_break} section_break={info.section_break} "
             f"ins={info.insertions} del={info.deletions} text={info.text!r}"
         )
@@ -151,17 +160,29 @@ def replace(
             "span is recorded as the tracked change."
         ),
     ),
+    part: str | None = typer.Option(
+        None,
+        "--part",
+        help=(
+            "Restrict the search to one part (e.g. word/header1.xml), as "
+            "reported by `inspect --json`. Otherwise every editable text "
+            "part (body, headers/footers, footnotes/endnotes) is searched, "
+            "and a match ambiguous across parts is refused."
+        ),
+    ),
 ) -> None:
     """Replace text as a minimal tracked change (w:ins/w:del).
 
-    By default, exactly one match must exist in the whole document - this is a
-    safety net against silently editing the wrong occurrence.
+    Searches every editable text part (body, headers/footers,
+    footnotes/endnotes) unless narrowed with --part. By default, exactly one
+    match must exist across all of them - this is a safety net against
+    silently editing the wrong occurrence.
     """
     package = DocxPackage(input_path)
-    document, ids, when = _prepare_edit(package)
+    parts, ids, when = _prepare_edit(package)
     try:
         count = replace_text(
-            document,
+            parts,
             old,
             new,
             ids,
@@ -174,6 +195,7 @@ def replace(
             before=before,
             after=after,
             as_literal=as_literal,
+            part=part,
         )
     except RedlineError as error:
         _fail(str(error))
@@ -201,9 +223,14 @@ def replace_batch(
 
     Each array element is an object: {"old": "...", "new": "...", "all": false,
     "occurrence": null, "bold": null, "paragraph_contains": null, "before": null,
-    "after": null, "as_literal": false}. Only "old" and "new" are required; this
-    replaces the throwaway per-session Python scripts previously used to apply a
-    batch of proofreading edits.
+    "after": null, "as_literal": false, "part": null}. Only "old" and "new" are
+    required; this replaces the throwaway per-session Python scripts previously
+    used to apply a batch of proofreading edits.
+
+    Every pair is searched across every editable text part (body,
+    headers/footers, footnotes/endnotes) unless it sets "part" (e.g.
+    "word/header1.xml", as reported by `inspect --json`) to restrict its own
+    target to one part.
 
     Every pair's target is resolved against the input document before any pair
     is applied, so an earlier pair's edit can never shift where a later pair's
@@ -213,10 +240,10 @@ def replace_batch(
     before anything is written.
     """
     package = DocxPackage(input_path)
-    document, ids, when = _prepare_edit(package)
+    parts, ids, when = _prepare_edit(package)
     pairs = json.loads(pairs_file.read_text(encoding="utf-8"))
     try:
-        total = apply_replace_batch(document, pairs, ids, author, when)
+        total = apply_replace_batch(parts, pairs, ids, author, when)
     except RedlineError as error:
         _fail(str(error))
         return
@@ -239,13 +266,23 @@ def replace_paragraph_cmd(
         ..., "--author", help="Reviewer identity written into Word revisions."
     ),
     bold: bool | None = typer.Option(None, "--bold/--no-bold"),
+    part: str | None = typer.Option(
+        None, "--part", help="Restrict the search to one part (see `replace --part`)."
+    ),
 ) -> None:
-    """Replace an entire paragraph's text as a tracked delete+insert."""
+    """Replace an entire paragraph's text as a tracked delete+insert.
+
+    Searches every editable text part (body, headers/footers,
+    footnotes/endnotes) unless narrowed with --part.
+    """
     package = DocxPackage(input_path)
-    document, ids, when = _prepare_edit(package)
+    parts, ids, when = _prepare_edit(package)
     try:
         paragraph = find_paragraph(
-            document, exact=match if exact else None, contains=None if exact else match
+            parts,
+            exact=match if exact else None,
+            contains=None if exact else match,
+            part=part,
         )
         replace_paragraph_text(paragraph, text, ids, author, when, bold=bold)
     except RedlineError as error:
@@ -270,13 +307,23 @@ def insert_paragraph_cmd(
         ..., "--author", help="Reviewer identity written into Word revisions."
     ),
     bold: bool | None = typer.Option(None, "--bold/--no-bold"),
+    part: str | None = typer.Option(
+        None, "--part", help="Restrict the search to one part (see `replace --part`)."
+    ),
 ) -> None:
-    """Insert a new tracked paragraph right after an anchor paragraph."""
+    """Insert a new tracked paragraph right after an anchor paragraph.
+
+    Searches every editable text part (body, headers/footers,
+    footnotes/endnotes) unless narrowed with --part.
+    """
     package = DocxPackage(input_path)
-    document, ids, when = _prepare_edit(package)
+    parts, ids, when = _prepare_edit(package)
     try:
         anchor = find_paragraph(
-            document, exact=after if exact else None, contains=None if exact else after
+            parts,
+            exact=after if exact else None,
+            contains=None if exact else after,
+            part=part,
         )
         insert_paragraph_after(anchor, text, ids, author, when, bold=bold)
     except RedlineError as error:

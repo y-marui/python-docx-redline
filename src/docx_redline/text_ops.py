@@ -2,9 +2,10 @@
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from copy import deepcopy
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, TypeAlias
 
 from lxml import etree
 
@@ -22,6 +23,22 @@ from .ooxml import (
 
 Segment = list[tuple[etree._Element, etree._Element, str]]
 
+#: A document root, or a (part name, root) pair per searchable WordprocessingML
+#: part (the main document body, headers/footers, footnotes/endnotes - see
+#: `DocxPackage.editable_text_parts`). Every search/replace entry point below
+#: accepts either: a bare root is treated as a single unnamed part, so
+#: existing single-document callers are unaffected.
+Parts: TypeAlias = Sequence[tuple[str, etree._Element]]
+Source: TypeAlias = "etree._Element | Parts"
+
+_UNNAMED_PART = "word/document.xml"
+
+
+def _as_parts(source: Source) -> Parts:
+    if isinstance(source, etree._Element):
+        return [(_UNNAMED_PART, source)]
+    return source
+
 
 def visible_text(paragraph: etree._Element) -> str:
     """Current (post-edit) text: w:t only, excludes w:delText."""
@@ -29,23 +46,35 @@ def visible_text(paragraph: etree._Element) -> str:
 
 
 def find_paragraph(
-    document: etree._Element, *, exact: str | None = None, contains: str | None = None
+    source: Source,
+    *,
+    exact: str | None = None,
+    contains: str | None = None,
+    part: str | None = None,
 ) -> etree._Element:
     if (exact is None) == (contains is None):
         raise RedlineError("specify exactly one of exact or contains")
-    matches = []
-    for paragraph in document.xpath(".//w:p", namespaces=NSMAP):
-        text = visible_text(paragraph)
-        if exact is not None and text == exact:
-            matches.append(paragraph)
-        elif contains is not None and contains in text:
-            matches.append(paragraph)
+    matches: list[tuple[str, etree._Element]] = []
+    for part_name, document in _as_parts(source):
+        if part is not None and part_name != part:
+            continue
+        for paragraph in document.xpath(".//w:p", namespaces=NSMAP):
+            text = visible_text(paragraph)
+            if exact is not None and text == exact:
+                matches.append((part_name, paragraph))
+            elif contains is not None and contains in text:
+                matches.append((part_name, paragraph))
     if len(matches) != 1:
         target = exact if exact is not None else contains
+        detail = ""
+        if len(matches) > 1:
+            found_in = ", ".join(sorted({name for name, _ in matches}))
+            detail = f" (in part(s): {found_in}; pass part= to disambiguate)"
         raise RedlineError(
-            f"expected exactly one paragraph matching {target!r}, found {len(matches)}"
+            f"expected exactly one paragraph matching {target!r}, "
+            f"found {len(matches)}{detail}"
         )
-    return matches[0]
+    return matches[0][1]
 
 
 def _element_visible_len(element: etree._Element) -> int:
@@ -84,49 +113,60 @@ def _segments(paragraph: etree._Element) -> list[tuple[int, Segment]]:
 
 
 def _find_matches(
-    document: etree._Element,
+    source: Source,
     old: str,
     paragraph_contains: str | None,
     before: str | None = None,
     after: str | None = None,
-) -> list[tuple[etree._Element, Segment, int, int]]:
-    """Find every match of `old`, as (paragraph, segment, local_start, absolute_start).
+    part: str | None = None,
+) -> list[tuple[str, etree._Element, Segment, int, int]]:
+    """Find every match of `old` across `source`'s part(s).
 
-    `local_start` is relative to `segment`'s own combined text (what
-    `_apply_replacement` expects); `absolute_start` is relative to the whole
-    paragraph's visible text (stable across edits applied elsewhere in the
-    same paragraph, unlike a segment reference - see `_segment_at`).
+    Each result is (part_name, paragraph, segment, local_start,
+    absolute_start). `local_start` is relative to `segment`'s own combined
+    text (what `_apply_replacement` expects); `absolute_start` is relative to
+    the whole paragraph's visible text (stable across edits applied
+    elsewhere in the same paragraph, unlike a segment reference - see
+    `_segment_at`).
     """
-    matches: list[tuple[etree._Element, Segment, int, int]] = []
-    for paragraph in document.xpath(".//w:p", namespaces=NSMAP):
-        paragraph_text = visible_text(paragraph)
-        if paragraph_contains is not None and paragraph_contains not in paragraph_text:
+    matches: list[tuple[str, etree._Element, Segment, int, int]] = []
+    for part_name, document in _as_parts(source):
+        if part is not None and part_name != part:
             continue
-        for segment_start, segment in _segments(paragraph):
-            combined = "".join(text for _, _, text in segment)
-            start = 0
-            while True:
-                index = combined.find(old, start)
-                if index < 0:
-                    break
-                start = index + max(len(old), 1)
-                absolute_start = segment_start + index
-                absolute_end = absolute_start + len(old)
-                if (
-                    before is not None
-                    and paragraph_text[
-                        max(0, absolute_start - len(before)) : absolute_start
-                    ]
-                    != before
-                ):
-                    continue
-                if (
-                    after is not None
-                    and paragraph_text[absolute_end : absolute_end + len(after)]
-                    != after
-                ):
-                    continue
-                matches.append((paragraph, segment, index, absolute_start))
+        for paragraph in document.xpath(".//w:p", namespaces=NSMAP):
+            paragraph_text = visible_text(paragraph)
+            if (
+                paragraph_contains is not None
+                and paragraph_contains not in paragraph_text
+            ):
+                continue
+            for segment_start, segment in _segments(paragraph):
+                combined = "".join(text for _, _, text in segment)
+                start = 0
+                while True:
+                    index = combined.find(old, start)
+                    if index < 0:
+                        break
+                    start = index + max(len(old), 1)
+                    absolute_start = segment_start + index
+                    absolute_end = absolute_start + len(old)
+                    if (
+                        before is not None
+                        and paragraph_text[
+                            max(0, absolute_start - len(before)) : absolute_start
+                        ]
+                        != before
+                    ):
+                        continue
+                    if (
+                        after is not None
+                        and paragraph_text[absolute_end : absolute_end + len(after)]
+                        != after
+                    ):
+                        continue
+                    matches.append(
+                        (part_name, paragraph, segment, index, absolute_start)
+                    )
     return matches
 
 
@@ -269,7 +309,7 @@ def _apply_replacement(
 
 
 def replace_text(
-    document: etree._Element,
+    source: Source,
     old: str,
     new: str,
     ids: IdAllocator,
@@ -283,12 +323,19 @@ def replace_text(
     before: str | None = None,
     after: str | None = None,
     as_literal: bool = False,
+    part: str | None = None,
 ) -> int:
     """Replace `old` with `new` as a minimal tracked w:del+w:ins.
 
-    By default exactly one match must exist across the whole document (a safety
-    net against silently editing the wrong occurrence). Pass `occurrence` to pick
-    one match by index, `all_occurrences=True` to replace every match, or
+    `source` is either a single document root, or a sequence of (part name,
+    root) pairs to search across (see `DocxPackage.editable_text_parts`) -
+    e.g. a proofreading correction in a header or footnote, not just the
+    main document body.
+
+    By default exactly one match must exist across all of `source` (a safety
+    net against silently editing the wrong occurrence). Pass `occurrence` to
+    pick one match by index, `all_occurrences=True` to replace every match,
+    `part` to restrict the search to one named part, or
     `paragraph_contains`/`before`/`after` to narrow the search to matches with
     that surrounding context (context text itself is never part of the tracked
     change).
@@ -311,7 +358,7 @@ def replace_text(
     diff_offset, old_diff, new_diff = _diff_span(old, new, as_literal)
     applied = 0
     while True:
-        matches = _find_matches(document, old, paragraph_contains, before, after)
+        matches = _find_matches(source, old, paragraph_contains, before, after, part)
         if not matches:
             break
         if occurrence is not None:
@@ -322,16 +369,16 @@ def replace_text(
                     f"occurrence {occurrence} out of range: "
                     f"found {len(matches)} match(es) for {old!r}"
                 )
-            paragraph, segment, start, _ = matches[occurrence]
+            _part, paragraph, segment, start, _ = matches[occurrence]
         elif all_occurrences:
-            paragraph, segment, start, _ = matches[0]
+            _part, paragraph, segment, start, _ = matches[0]
         else:
             if len(matches) != 1:
                 raise RedlineError(
                     f"expected exactly one match for {old!r}, found {len(matches)}; "
                     "use --occurrence or --all"
                 )
-            paragraph, segment, start, _ = matches[0]
+            _part, paragraph, segment, start, _ = matches[0]
         _apply_replacement(
             paragraph,
             segment,
@@ -367,9 +414,9 @@ class _PlannedEdit:
 
 
 def _plan_batch_edits(
-    document: etree._Element, pairs: list[dict[str, Any]]
+    source: Source, pairs: list[dict[str, Any]]
 ) -> list[_PlannedEdit]:
-    """Resolve every pair's target against the untouched document.
+    """Resolve every pair's target against the untouched document(s).
 
     All targets are located before any pair is applied, so an earlier pair's
     edit can never shift where a later pair's `occurrence` or context selector
@@ -388,11 +435,12 @@ def _plan_batch_edits(
         except RedlineError as error:
             raise RedlineError(f"pair {index} ({old!r}): {error}") from error
         matches = _find_matches(
-            document,
+            source,
             old,
             pair.get("paragraph_contains"),
             pair.get("before"),
             pair.get("after"),
+            pair.get("part"),
         )
         occurrence = pair.get("occurrence")
         all_occurrences = pair.get("all", False)
@@ -414,7 +462,7 @@ def _plan_batch_edits(
                     f"{len(matches)}; use occurrence or all"
                 )
             selected = matches
-        for paragraph, _segment, _local_start, absolute_start in selected:
+        for _part, paragraph, _segment, _local_start, absolute_start in selected:
             planned.append(
                 _PlannedEdit(
                     index,
@@ -449,13 +497,17 @@ def _check_no_overlaps(grouped: dict[int, list[_PlannedEdit]]) -> None:
 
 
 def apply_replace_batch(
-    document: etree._Element,
+    source: Source,
     pairs: list[dict[str, Any]],
     ids: IdAllocator,
     author: str,
     when: str,
 ) -> int:
     """Apply a batch of tracked replacements, resolved against the source state.
+
+    `source` is either a single document root, or a sequence of (part name,
+    root) pairs to search across (see `DocxPackage.editable_text_parts`); a
+    pair may set `"part"` to restrict its own target to one named part.
 
     Every pair's target is located before any pair is applied (see
     `_plan_batch_edits`), and edits within the same paragraph are then applied
@@ -464,7 +516,7 @@ def apply_replace_batch(
     whose resolved spans overlap fail the whole batch before anything is
     written.
     """
-    planned = _plan_batch_edits(document, pairs)
+    planned = _plan_batch_edits(source, pairs)
     grouped = _group_by_paragraph(planned)
     _check_no_overlaps(grouped)
     applied = 0

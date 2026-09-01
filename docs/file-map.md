@@ -14,21 +14,26 @@ src/docx_redline/
   ooxml.py
     - imports: (stdlib, lxml)
     - exports: W_NS, NSMAP, w(), qn(), xml_bytes(), utc_timestamp(),
-      IdAllocator, next_change_id(), enable_tracking(), set_text(),
-      make_run(), make_tracked_wrapper(), make_change(), apply_bold(),
-      RprSignature, rpr_signature()
+      IdAllocator, next_change_id() (accepts one root or several, e.g. all
+      editable_text_parts() roots, so ids stay unique across every part),
+      enable_tracking(), set_text(), make_run(), make_tracked_wrapper(),
+      make_change(), apply_bold(), RprSignature, rpr_signature()
     - used by: package, text_ops, comments, cleanup, inspect, validate, cli
 
   package.py
     - imports: ooxml
-    - exports: DocxPackage
-    - used by: comments, validate, cli
+    - exports: DocxPackage (incl. editable_text_parts(): body + headers/
+      footers/footnotes/endnotes, excluding comments.xml)
+    - used by: comments, inspect, validate, cli
 
   text_ops.py
     - imports: errors, ooxml
-    - exports: visible_text(), find_paragraph(), replace_text(),
-      apply_replace_batch(), replace_paragraph_text(),
-      insert_paragraph_after()
+    - exports: Parts (part-name -> root pairs), find_paragraph(),
+      replace_text(), apply_replace_batch(), replace_paragraph_text(),
+      insert_paragraph_after(), visible_text()
+    - find_paragraph()/replace_text()/apply_replace_batch() accept either a
+      single document root or a Parts sequence, searching/editing across
+      every part given (see package.editable_text_parts())
     - used by: cli
 
   comments.py
@@ -42,8 +47,10 @@ src/docx_redline/
     - used by: cli
 
   inspect.py
-    - imports: ooxml
-    - exports: ParagraphInfo, inspect_document()
+    - imports: ooxml, package
+    - exports: ParagraphInfo (incl. part field), inspect_document()
+      (single part), inspect_package() (every editable text part,
+      globally renumbered)
     - used by: cli
 
   validate.py
