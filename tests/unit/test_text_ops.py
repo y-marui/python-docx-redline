@@ -264,6 +264,20 @@ def test_replace_default_diffs_full_sentences_to_minimal_span(docx_factory) -> N
     assert inserted == "が"
 
 
+def test_replace_diff_handles_new_that_wholly_contains_old_as_a_suffix(
+    docx_factory,
+) -> None:
+    # `new` = "hello " + `old` in full: the common *suffix* consumes all of
+    # `old`, which must not leave old_diff without a run to anchor to.
+    docx = docx_factory("doc.docx", [["Hello world."]])
+    package = _open(docx)
+    document = package.xml("word/document.xml")
+    ids = next_change_id(document)
+    replace_text(document, "world", "hello world", ids, "Tester", utc_timestamp())
+    paragraph = _paragraphs(document)[0]
+    assert visible_text(paragraph) == "Hello hello world."
+
+
 def test_replace_as_literal_deletes_and_inserts_whole_strings(docx_factory) -> None:
     docx = docx_factory("doc.docx", [["猫を見た。"]])
     package = _open(docx)
@@ -432,6 +446,28 @@ def test_replace_batch_target_shifted_by_earlier_pair_in_same_paragraph(
     apply_replace_batch(document, pairs, ids, "Tester", utc_timestamp())
     paragraph = _paragraphs(document)[0]
     assert visible_text(paragraph) == "1 two 3"
+
+
+def test_replace_batch_targets_text_immediately_after_a_zero_width_separator(
+    docx_factory,
+) -> None:
+    # A w:bookmarkStart contributes zero visible length, so the segment
+    # after it starts exactly where the segment before it ends. Re-locating
+    # this batch edit's segment at apply time must select the *following*
+    # segment (where "world" actually is), not the preceding one.
+    docx = docx_factory("doc.docx", [["Hello ", "world"]])
+    package = _open(docx)
+    document = package.xml("word/document.xml")
+    paragraph = _paragraphs(document)[0]
+    first_run = paragraph.xpath("./w:r", namespaces=NSMAP)[0]
+    bookmark = etree.Element(w("bookmarkStart"))
+    bookmark.set(w("id"), "0")
+    bookmark.set(w("name"), "x")
+    paragraph.insert(paragraph.index(first_run) + 1, bookmark)
+    ids = next_change_id(document)
+    pairs = [{"old": "world", "new": "planet"}]
+    apply_replace_batch(document, pairs, ids, "Tester", utc_timestamp())
+    assert visible_text(paragraph) == "Hello planet"
 
 
 # --- Heterogeneous-run deletion-only edits ------------------------------------
