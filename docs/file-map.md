@@ -27,7 +27,8 @@ src/docx_redline/
   text_ops.py
     - imports: errors, ooxml
     - exports: visible_text(), find_paragraph(), replace_text(),
-      replace_paragraph_text(), insert_paragraph_after()
+      apply_replace_batch(), replace_paragraph_text(),
+      insert_paragraph_after()
     - used by: cli
 
   comments.py
