@@ -44,6 +44,13 @@
   ([#11](https://github.com/y-marui/python-docx-redline/issues/11))
 
 ### Fixed
+- `validate`: `no-formatting-insertions` no longer flags an insertion whose
+  run properties exactly match the `w:del` it immediately replaces - a
+  formatting-preserving edit, not a newly introduced one. An insertion that
+  introduces formatting the source didn't have (or that follows a deletion
+  spanning more than one formatting signature, so there's no single source
+  to compare against) is still flagged.
+  ([#12](https://github.com/y-marui/python-docx-redline/issues/12))
 - `replace` / `replace-batch`: a tracked replacement whose match spans runs
   with different formatting (bold, italic, underline, font, character style,
   etc.) is now refused with an error instead of silently applying one run's
