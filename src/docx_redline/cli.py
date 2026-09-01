@@ -10,6 +10,7 @@ from lxml import etree
 
 from . import comments as comments_mod
 from . import validate as validate_mod
+from . import word_verify as word_verify_mod
 from .cleanup import AcceptedRevisions, accept_revisions, strip_format_revisions
 from .errors import RedlineError
 from .inspect import inspect_package
@@ -489,6 +490,78 @@ def validate(
             status = "PASS" if check.passed else "FAIL"
             typer.echo(f"[{status}] {check.name}: {check.detail}")
     if not report.ok:
+        raise typer.Exit(1)
+
+
+@app.command("verify-word")
+def verify_word_cmd(
+    input_path: Path = typer.Argument(..., exists=True, readable=True),
+    pdf: Path = typer.Option(
+        ..., "--pdf", help="Where to write the Word-rendered verification PDF."
+    ),
+    png_dir: Path | None = typer.Option(
+        None,
+        "--png-dir",
+        help="Rasterize each PDF page into this directory (requires pdftoppm).",
+    ),
+    required_font: list[str] = typer.Option(
+        [],
+        "--required-font",
+        help="Font that must be declared somewhere in the document (repeatable).",
+    ),
+    expected_font: list[str] = typer.Option(
+        [],
+        "--expected-font",
+        help=(
+            "Restrict declared fonts to this set; any other declared font is "
+            "flagged (repeatable)."
+        ),
+    ),
+    json_output: bool = typer.Option(
+        False, "--json", help="Print machine-readable JSON."
+    ),
+) -> None:
+    """Verify layout/pagination via Microsoft Word (macOS only) and audit fonts.
+
+    Opens `input_path` read-only through Microsoft Word automation,
+    repaginates it, and exports a verification PDF - the input file is never
+    modified. LibreOffice is deliberately not used as a fallback: it is not
+    an authoritative renderer for Word tracked changes and can show
+    different layout/pagination than Microsoft Word.
+
+    Declared fonts (from word/styles.xml and word/document.xml) are
+    complementary to the rendered PDF: a declaration alone can't prove Word
+    didn't substitute an unavailable font.
+    """
+    package = DocxPackage(input_path)
+    pdf.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        result = word_verify_mod.verify_word(
+            input_path,
+            pdf,
+            package=package,
+            png_dir=png_dir,
+            required_fonts=required_font,
+            expected_fonts=expected_font,
+        )
+    except RedlineError as error:
+        _fail(str(error))
+        return
+    if json_output:
+        typer.echo(json.dumps(result.__dict__, ensure_ascii=False, indent=2))
+    else:
+        typer.echo(
+            f"Word {result.word_version}: {result.page_count} page(s) -> "
+            f"{result.pdf_path}"
+        )
+        if result.png_paths:
+            typer.echo(f"PNG(s): {len(result.png_paths)} page(s) -> {png_dir}")
+        typer.echo(f"declared fonts: {', '.join(result.declared_fonts) or '(none)'}")
+        if result.missing_required_fonts:
+            typer.echo(f"MISSING required font(s): {result.missing_required_fonts}")
+        if result.unexpected_fonts:
+            typer.echo(f"UNEXPECTED font(s): {result.unexpected_fonts}")
+    if not result.ok:
         raise typer.Exit(1)
 
 

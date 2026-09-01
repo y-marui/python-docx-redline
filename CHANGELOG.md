@@ -5,6 +5,16 @@
 ### Added
 - `validate`: new `run-properties-preserved` check flags formatting changes on
   text left untouched by tracked changes.
+- New `verify-word` command (macOS only): opens the input `.docx` read-only
+  through Microsoft Word automation, repaginates it, exports a verification
+  PDF, and reports the Word version, page count, and PDF SHA-256 as JSON
+  (`--json`) or text. `--png-dir` optionally rasterizes each PDF page (via
+  `pdftoppm`/poppler). Also audits fonts declared in `word/styles.xml` and
+  `word/document.xml`'s `w:rFonts`, with `--required-font` (must be declared
+  somewhere) and `--expected-font` (only these may be declared) options;
+  either exits non-zero with an actionable message. LibreOffice is
+  deliberately not used as a fallback renderer.
+  ([#10](https://github.com/y-marui/python-docx-redline/issues/10))
 - `replace` / `replace-batch`: `--before`/`--after` (`before`/`after` per pair)
   narrow a match to one with specific surrounding text, without that context
   ever becoming part of the tracked change.
@@ -44,6 +54,13 @@
   ([#11](https://github.com/y-marui/python-docx-redline/issues/11))
 
 ### Fixed
+- `validate`: `no-formatting-insertions` no longer flags an insertion whose
+  run properties exactly match the `w:del` it immediately replaces - a
+  formatting-preserving edit, not a newly introduced one. An insertion that
+  introduces formatting the source didn't have (or that follows a deletion
+  spanning more than one formatting signature, so there's no single source
+  to compare against) is still flagged.
+  ([#12](https://github.com/y-marui/python-docx-redline/issues/12))
 - `replace` / `replace-batch`: a tracked replacement whose match spans runs
   with different formatting (bold, italic, underline, font, character style,
   etc.) is now refused with an error instead of silently applying one run's

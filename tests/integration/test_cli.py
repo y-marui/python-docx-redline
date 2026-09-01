@@ -6,11 +6,14 @@ from pathlib import Path
 from lxml import etree
 from typer.testing import CliRunner
 
+from docx_redline import cli as cli_mod
 from docx_redline import comments as comments_mod
 from docx_redline.cli import app
+from docx_redline.errors import RedlineError
 from docx_redline.ooxml import NSMAP
 from docx_redline.package import DocxPackage
 from docx_redline.text_ops import visible_text
+from docx_redline.word_verify import WordVerifyResult
 
 runner = CliRunner()
 
@@ -317,6 +320,81 @@ def test_replace_command_part_option_targets_header(
     ]
     assert visible_text(header_paragraph) == "Header heading."
     assert visible_text(body_paragraph) == "Body text."
+
+
+def test_verify_word_command_reports_ok_result_as_json(
+    monkeypatch, docx_factory, tmp_path: Path
+) -> None:
+    docx = docx_factory("doc.docx", [["Plain text."]])
+    pdf = tmp_path / "out.pdf"
+
+    def fake_verify_word(input_path, pdf_path, **kwargs):
+        return WordVerifyResult(
+            word_version="16.78",
+            page_count=2,
+            pdf_path=str(pdf_path),
+            pdf_sha256="deadbeef",
+            declared_fonts=["Arial"],
+        )
+
+    monkeypatch.setattr(cli_mod.word_verify_mod, "verify_word", fake_verify_word)
+
+    result = runner.invoke(app, ["verify-word", str(docx), "--pdf", str(pdf), "--json"])
+
+    assert result.exit_code == 0, result.output
+    payload = json.loads(result.output)
+    assert payload["word_version"] == "16.78"
+    assert payload["page_count"] == 2
+
+
+def test_verify_word_command_exits_nonzero_on_missing_required_font(
+    monkeypatch, docx_factory, tmp_path: Path
+) -> None:
+    docx = docx_factory("doc.docx", [["Plain text."]])
+    pdf = tmp_path / "out.pdf"
+
+    def fake_verify_word(input_path, pdf_path, **kwargs):
+        return WordVerifyResult(
+            word_version="16.78",
+            page_count=1,
+            pdf_path=str(pdf_path),
+            pdf_sha256="deadbeef",
+            missing_required_fonts=["Times New Roman"],
+        )
+
+    monkeypatch.setattr(cli_mod.word_verify_mod, "verify_word", fake_verify_word)
+
+    result = runner.invoke(
+        app,
+        [
+            "verify-word",
+            str(docx),
+            "--pdf",
+            str(pdf),
+            "--required-font",
+            "Times New Roman",
+        ],
+    )
+
+    assert result.exit_code == 1
+    assert "MISSING required font(s)" in result.output
+
+
+def test_verify_word_command_reports_platform_error(
+    monkeypatch, docx_factory, tmp_path: Path
+) -> None:
+    docx = docx_factory("doc.docx", [["Plain text."]])
+    pdf = tmp_path / "out.pdf"
+
+    def fake_verify_word(input_path, pdf_path, **kwargs):
+        raise RedlineError("verify-word requires macOS with Microsoft Word installed")
+
+    monkeypatch.setattr(cli_mod.word_verify_mod, "verify_word", fake_verify_word)
+
+    result = runner.invoke(app, ["verify-word", str(docx), "--pdf", str(pdf)])
+
+    assert result.exit_code == 1
+    assert "requires macOS" in result.output
 
 
 def test_accept_revisions_command_processes_non_body_wordprocessingml_parts(

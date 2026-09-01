@@ -94,32 +94,85 @@ _INSERTION_FORMATTING_TAGS = (
 )
 
 
+def _preceding_deletion_signature(ins: etree._Element) -> RprSignature | None:
+    """The rpr signature of a `w:del` immediately preceding this `w:ins`, if any.
+
+    `replace_text`/`apply_replace_batch`/`replace_paragraph_text` always place
+    a replacement's deletion as the tracked insertion's immediately preceding
+    sibling when both exist (see `text_ops._apply_replacement` and
+    `replace_paragraph_text`), so this is the "source formatting" an
+    insertion is judged against. Returns `None` - no source to compare, so
+    the caller falls back to always flagging - when there's no preceding
+    deletion at all (e.g. `insert-paragraph`, genuinely new content) or the
+    deletion spans runs with more than one formatting signature (should not
+    happen via this tool's own commands, which refuse such a replacement
+    outright, but a hand-edited or foreign document could still produce one).
+    """
+    previous = ins.getprevious()
+    if previous is None or previous.tag != w("del"):
+        return None
+    signatures = {
+        rpr_signature(run.find("w:rPr", namespaces=NSMAP))
+        for run in previous.xpath(".//w:r", namespaces=NSMAP)
+    }
+    if len(signatures) != 1:
+        return None
+    return next(iter(signatures))
+
+
 def check_no_formatting_insertions(
     document: etree._Element, report: ValidationReport
 ) -> None:
-    """Flag any inserted text carrying notable run formatting for manual review.
+    """Flag inserted text carrying newly introduced notable run formatting.
 
     Covers bold, italic, underline, strike, subscript/superscript (vertAlign),
-    and character style (rStyle) - always, whether it came from an explicit
-    --bold-style override or was preserved from the replaced text. This is a
-    conservative pre-delivery check, not an attempt to guess intent. Font,
-    size, and color are intentionally excluded: replacements routinely carry
-    those over from the source run (e.g. CJK font hints) and flagging every
-    such insertion would make the check useless in practice.
+    and character style (rStyle). An insertion whose run properties exactly
+    match the formatting of the `w:del` it immediately replaces is a
+    formatting-*preserving* edit - required to keep the document's
+    established formatting - and passes; this check exists to catch
+    formatting a replacement introduces that the source text didn't have
+    (e.g. an explicit --bold override, or a bug), not to flag every
+    replacement that happens to inherit its source run's own formatting.
+    Font, size, and color are intentionally excluded: replacements routinely
+    carry those over from the source run (e.g. CJK font hints) and flagging
+    every such insertion would make the check useless in practice.
     """
-    offenders: list[tuple[str, etree._Element]] = []
-    for tag in _INSERTION_FORMATTING_TAGS:
-        offenders.extend(
-            (tag, node)
-            for node in document.xpath(f".//w:ins//w:{tag}", namespaces=NSMAP)
+    offenders: list[tuple[etree._Element, tuple[str, ...]]] = []
+    preserved = 0
+    for ins in document.xpath(".//w:ins", namespaces=NSMAP):
+        source_signature = _preceding_deletion_signature(ins)
+        for run in ins.xpath(".//w:r", namespaces=NSMAP):
+            rpr = run.find("w:rPr", namespaces=NSMAP)
+            if rpr is None:
+                continue
+            tags = tuple(
+                sorted(
+                    {
+                        etree.QName(child).localname
+                        for child in rpr
+                        if etree.QName(child).localname in _INSERTION_FORMATTING_TAGS
+                    }
+                )
+            )
+            if not tags:
+                continue
+            if source_signature is not None and rpr_signature(rpr) == source_signature:
+                preserved += 1
+                continue
+            offenders.append((run, tags))
+    if offenders:
+        tag_names = sorted({tag for _, tags in offenders for tag in tags})
+        detail = (
+            "newly introduced formatting inside w:ins: "
+            + ", ".join(tag_names)
+            + f" ({len(offenders)} run(s))"
         )
-    detail = (
-        "no inserted text carries notable formatting"
-        if not offenders
-        else "formatting inside w:ins: "
-        + ", ".join(sorted({tag for tag, _ in offenders}))
-        + f" ({len(offenders)} run(s))"
-    )
+    else:
+        detail = "no inserted text carries newly introduced formatting"
+        if preserved:
+            detail += (
+                f" ({preserved} run(s) preserve formatting from the replaced text)"
+            )
     report.add("no-formatting-insertions", not offenders, detail)
 
 
