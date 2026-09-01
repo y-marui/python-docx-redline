@@ -17,6 +17,7 @@ from .inspect import inspect_document
 from .ooxml import IdAllocator, enable_tracking, next_change_id, utc_timestamp
 from .package import DocxPackage
 from .text_ops import (
+    apply_replace_batch,
     find_paragraph,
     insert_paragraph_after,
     replace_paragraph_text,
@@ -131,6 +132,25 @@ def replace(
         "--paragraph-contains",
         help="Only search paragraphs containing this text.",
     ),
+    before: str | None = typer.Option(
+        None,
+        "--before",
+        help="Only match where this text immediately precedes old.",
+    ),
+    after: str | None = typer.Option(
+        None,
+        "--after",
+        help="Only match where this text immediately follows old.",
+    ),
+    as_literal: bool = typer.Option(
+        False,
+        "--as-literal/--no-as-literal",
+        help=(
+            "Delete all of old and insert all of new verbatim. By default, "
+            "old/new may be full sentences and only their differing middle "
+            "span is recorded as the tracked change."
+        ),
+    ),
 ) -> None:
     """Replace text as a minimal tracked change (w:ins/w:del).
 
@@ -151,6 +171,9 @@ def replace(
             occurrence=occurrence,
             bold=bold,
             paragraph_contains=paragraph_contains,
+            before=before,
+            after=after,
+            as_literal=as_literal,
         )
     except RedlineError as error:
         _fail(str(error))
@@ -174,33 +197,29 @@ def replace_batch(
         ..., "--author", help="Reviewer identity written into Word revisions."
     ),
 ) -> None:
-    """Apply a sequential list of tracked replacements from a JSON file.
+    """Apply a batch of tracked replacements from a JSON file.
 
     Each array element is an object: {"old": "...", "new": "...", "all": false,
-    "occurrence": null, "bold": null, "paragraph_contains": null}. Only "old" and
-    "new" are required; this replaces the throwaway per-session Python scripts
-    previously used to apply a batch of proofreading edits.
+    "occurrence": null, "bold": null, "paragraph_contains": null, "before": null,
+    "after": null, "as_literal": false}. Only "old" and "new" are required; this
+    replaces the throwaway per-session Python scripts previously used to apply a
+    batch of proofreading edits.
+
+    Every pair's target is resolved against the input document before any pair
+    is applied, so an earlier pair's edit can never shift where a later pair's
+    "occurrence" resolves to. By default ("as_literal": false) "old"/"new" may
+    be full sentences; only their differing middle span becomes the tracked
+    change. Two pairs that resolve to overlapping text fail the whole batch
+    before anything is written.
     """
     package = DocxPackage(input_path)
     document, ids, when = _prepare_edit(package)
     pairs = json.loads(pairs_file.read_text(encoding="utf-8"))
-    total = 0
-    for index, pair in enumerate(pairs):
-        try:
-            total += replace_text(
-                document,
-                pair["old"],
-                pair["new"],
-                ids,
-                author,
-                when,
-                all_occurrences=pair.get("all", False),
-                occurrence=pair.get("occurrence"),
-                bold=pair.get("bold"),
-                paragraph_contains=pair.get("paragraph_contains"),
-            )
-        except RedlineError as error:
-            _fail(f"pair {index} ({pair.get('old')!r}): {error}")
+    try:
+        total = apply_replace_batch(document, pairs, ids, author, when)
+    except RedlineError as error:
+        _fail(str(error))
+        return
     _save(package, out)
     typer.echo(f"OK: {total} replacement(s) from {len(pairs)} pair(s) -> {out}")
 
