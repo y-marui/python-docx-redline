@@ -55,9 +55,21 @@ src/docx_redline/
       check_contains(), check_not_contains()
     - used by: cli
 
+  word_verify.py
+    - imports: errors, ooxml, package (stdlib: subprocess, hashlib, platform,
+      shutil)
+    - exports: WordVerifyResult, audit_declared_fonts(), verify_word()
+    - macOS-only Word automation (via `osascript`) for layout/pagination
+      verification, plus a static font-declaration audit (styles.xml +
+      document.xml) that needs neither macOS nor Word. All subprocess calls
+      go through an injectable `runner` so command construction and error
+      handling are unit-testable without Word/macOS - see
+      tests/unit/test_word_verify.py
+    - used by: cli
+
   cli.py
     - imports: comments, validate, cleanup, errors, inspect, ooxml,
-      package, text_ops, typer
+      package, text_ops, word_verify, typer
     - exports: app, main()
     - entry point: `docx-redline` (pyproject.toml [project.scripts])
 ```
