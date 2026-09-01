@@ -122,6 +122,92 @@ def test_replace_command_reports_ambiguous_match(docx_factory, tmp_path: Path) -
     assert not out.exists()
 
 
+def test_replace_command_diffs_full_sentence_to_minimal_span_by_default(
+    docx_factory, tmp_path: Path
+) -> None:
+    docx = docx_factory("doc.docx", [["猫を見た。"]])
+    out = tmp_path / "out.docx"
+
+    result = runner.invoke(
+        app,
+        [
+            "replace",
+            str(docx),
+            "猫を見た。",
+            "猫が見た。",
+            "--out",
+            str(out),
+            "--author",
+            "Test Agent",
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    document = DocxPackage(out).xml("word/document.xml")
+    deleted = "".join(document.xpath(".//w:delText/text()", namespaces=NSMAP))
+    assert deleted == "を"
+
+
+def test_replace_command_before_after_disambiguate_repeated_match(
+    docx_factory, tmp_path: Path
+) -> None:
+    docx = docx_factory("doc.docx", [["猫を見た。犬を見た。"]])
+    out = tmp_path / "out.docx"
+
+    result = runner.invoke(
+        app,
+        [
+            "replace",
+            str(docx),
+            "を",
+            "が",
+            "--out",
+            str(out),
+            "--author",
+            "Test Agent",
+            "--before",
+            "犬",
+            "--after",
+            "見",
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    document = DocxPackage(out).xml("word/document.xml")
+    paragraph = document.xpath(".//w:p", namespaces=NSMAP)[0]
+    assert visible_text(paragraph) == "猫を見た。犬が見た。"
+
+
+def test_replace_batch_command_rejects_overlapping_pairs(
+    docx_factory, tmp_path: Path
+) -> None:
+    docx = docx_factory("doc.docx", [["Hello world."]])
+    pairs_file = tmp_path / "pairs.json"
+    pairs_file.write_text(
+        '[{"old": "Hello wo", "new": "HELLO WO"}, '
+        '{"old": "lo world", "new": "LO WORLD"}]'
+    )
+    out = tmp_path / "out.docx"
+
+    result = runner.invoke(
+        app,
+        [
+            "replace-batch",
+            str(docx),
+            "--pairs",
+            str(pairs_file),
+            "--out",
+            str(out),
+            "--author",
+            "Test Agent",
+        ],
+    )
+
+    assert result.exit_code == 1
+    assert "overlapping" in result.output
+    assert not out.exists()
+
+
 def test_replace_batch_command_applies_all_pairs(docx_factory, tmp_path: Path) -> None:
     docx = docx_factory("doc.docx", [["one two three"]])
     pairs_file = tmp_path / "pairs.json"
