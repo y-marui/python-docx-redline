@@ -11,6 +11,16 @@
 - `replace-batch`: `as_literal` per pair opts a pair out of the new
   minimal-diff default (see below), deleting all of `old` and inserting all
   of `new` verbatim instead. ([#11](https://github.com/y-marui/python-docx-redline/issues/11))
+- `inspect`, `replace`, `replace-batch`, `replace-paragraph`, and
+  `insert-paragraph` now cover every editable text part - the main document
+  plus headers, footers, footnotes, and endnotes - not just
+  `word/document.xml`. `inspect --json` reports a `part` field per paragraph;
+  `replace`/`replace-paragraph`/`insert-paragraph` take `--part` and
+  `replace-batch` pairs take `"part"` to restrict a search to one named part,
+  as reported by `inspect --json`. A target ambiguous across parts is refused
+  unless narrowed this way. `word/comments.xml` is intentionally out of
+  scope - it has its own `add-comment`/`list-comments` surface.
+  ([#13](https://github.com/y-marui/python-docx-redline/issues/13))
 
 ### Changed
 - `validate`: `no-bold-insertions` is now `no-formatting-insertions` and also

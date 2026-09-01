@@ -7,7 +7,7 @@ from pathlib import Path
 
 from lxml import etree
 
-from .ooxml import xml_bytes
+from .ooxml import W_NS, xml_bytes
 
 
 class DocxPackage:
@@ -34,6 +34,24 @@ class DocxPackage:
         if name not in self._roots:
             self._roots[name] = etree.fromstring(self._parts[name])
         return self._roots[name]
+
+    def editable_text_parts(self) -> list[tuple[str, etree._Element]]:
+        """Word body-text parts open to proofreading commands.
+
+        The main document plus headers, footers, footnotes, and endnotes -
+        not `word/comments.xml`, which has its own dedicated
+        `add-comment`/`list-comments` surface.
+        """
+        names = {"word/document.xml", "word/footnotes.xml", "word/endnotes.xml"}
+        parts: list[tuple[str, etree._Element]] = []
+        for name in self.all_part_names():
+            is_header_or_footer = name.startswith(("word/header", "word/footer"))
+            if name not in names and not is_header_or_footer:
+                continue
+            root = self.xml(name)
+            if etree.QName(root).namespace == W_NS:
+                parts.append((name, root))
+        return parts
 
     def new_xml(self, name: str, root: etree._Element) -> None:
         """Register a brand-new XML part (e.g. comments.xml) missing from the source."""
