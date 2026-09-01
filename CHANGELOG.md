@@ -5,11 +5,33 @@
 ### Added
 - `validate`: new `run-properties-preserved` check flags formatting changes on
   text left untouched by tracked changes.
+- `replace` / `replace-batch`: `--before`/`--after` (`before`/`after` per pair)
+  narrow a match to one with specific surrounding text, without that context
+  ever becoming part of the tracked change.
+- `replace-batch`: `as_literal` per pair opts a pair out of the new
+  minimal-diff default (see below), deleting all of `old` and inserting all
+  of `new` verbatim instead. ([#11](https://github.com/y-marui/python-docx-redline/issues/11))
 
 ### Changed
 - `validate`: `no-bold-insertions` is now `no-formatting-insertions` and also
   covers italic, underline, strike, subscript/superscript, and character
   style inside `w:ins`.
+- `replace` / `replace-batch`: `old`/`new` may now be full sentences; by
+  default only their differing middle span (common prefix/suffix trimmed) is
+  recorded as the tracked change, instead of deleting and reinserting the
+  whole match. Pass `--as-literal` (`replace`) or `as_literal: true` (a
+  `replace-batch` pair) to keep the previous whole-string behavior.
+  ([#11](https://github.com/y-marui/python-docx-redline/issues/11))
+- `replace-batch`: every pair's target is now resolved against the input
+  document before any pair is applied, so an earlier pair's edit can no
+  longer shift where a later pair's `occurrence` resolves to. Pairs whose
+  resolved spans overlap fail the whole batch before anything is written.
+  ([#11](https://github.com/y-marui/python-docx-redline/issues/11))
+- `replace` / `replace-batch`: a deletion-only edit (empty `new`) may now
+  span runs with different formatting, preserving each deleted run's own
+  properties; a replacement that would still need to pick one formatting
+  policy across mismatched runs continues to be refused.
+  ([#11](https://github.com/y-marui/python-docx-redline/issues/11))
 
 ### Fixed
 - `replace` / `replace-batch`: a tracked replacement whose match spans runs
