@@ -117,6 +117,35 @@ def test_check_no_formatting_insertions_flags_insertion_after_mixed_signature_de
     assert not report.ok
 
 
+def test_check_no_formatting_insertions_flags_run_wrapped_in_smart_tag(
+    docx_factory,
+) -> None:
+    # A run can sit inside a valid run-level wrapper (w:smartTag, w:sdt,
+    # w:customXml) rather than directly under w:ins. A newly-introduced-
+    # formatting run wrapped this way must still be caught, not skipped
+    # just because it isn't a direct child of w:ins.
+    docx = docx_factory("doc.docx", [["Hello world."]])
+    package = DocxPackage(docx)
+    document = package.xml("word/document.xml")
+    paragraph = document.xpath(".//w:p", namespaces=NSMAP)[0]
+    deletion = etree.fromstring(
+        b"<w:del " + _W_XMLNS + b' w:id="1">'
+        b"<w:r><w:delText>world</w:delText></w:r></w:del>"
+    )
+    insertion = etree.fromstring(
+        b"<w:ins " + _W_XMLNS + b' w:id="2">'
+        b'<w:smartTag w:uri="urn:x" w:element="x">'
+        b"<w:r><w:rPr><w:b/></w:rPr><w:t>there</w:t></w:r>"
+        b"</w:smartTag></w:ins>"
+    )
+    paragraph.append(deletion)
+    paragraph.append(insertion)
+
+    report = validate_mod.ValidationReport()
+    validate_mod.check_no_formatting_insertions(document, report)
+    assert not report.ok
+
+
 def test_check_no_formatting_insertions_passes_for_plain_insertion(
     docx_factory,
 ) -> None:

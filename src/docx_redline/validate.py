@@ -113,7 +113,7 @@ def _preceding_deletion_signature(ins: etree._Element) -> RprSignature | None:
         return None
     signatures = {
         rpr_signature(run.find("w:rPr", namespaces=NSMAP))
-        for run in previous.xpath("./w:r", namespaces=NSMAP)
+        for run in previous.xpath(".//w:r", namespaces=NSMAP)
     }
     if len(signatures) != 1:
         return None
@@ -141,7 +141,7 @@ def check_no_formatting_insertions(
     preserved = 0
     for ins in document.xpath(".//w:ins", namespaces=NSMAP):
         source_signature = _preceding_deletion_signature(ins)
-        for run in ins.xpath("./w:r", namespaces=NSMAP):
+        for run in ins.xpath(".//w:r", namespaces=NSMAP):
             rpr = run.find("w:rPr", namespaces=NSMAP)
             if rpr is None:
                 continue
