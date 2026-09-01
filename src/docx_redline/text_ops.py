@@ -142,7 +142,7 @@ def _segment_at(paragraph: etree._Element, absolute_start: int) -> tuple[Segment
     """
     for segment_start, segment in _segments(paragraph):
         combined_len = sum(len(text) for _, _, text in segment)
-        if segment_start <= absolute_start <= segment_start + combined_len:
+        if segment_start <= absolute_start < segment_start + combined_len:
             return segment, absolute_start - segment_start
     raise RedlineError(
         "could not re-locate a planned batch edit after an earlier edit "
@@ -171,8 +171,15 @@ def _minimal_diff(old: str, new: str) -> tuple[int, str, str]:
         suffix < max_suffix and old[len(old) - 1 - suffix] == new[len(new) - 1 - suffix]
     ):
         suffix += 1
+    # prefix + suffix can reach (but never exceed) len(old) - e.g. `new` is
+    # `old` with text appended (suffix absorbs all of `old`) or prepended
+    # (prefix does). Give back one character - from whichever side has room -
+    # so old_diff always keeps >=1 char to anchor the deletion to a run.
     if prefix + suffix >= len(old):
-        prefix = len(old) - suffix - 1
+        if suffix > 0:
+            suffix -= 1
+        else:
+            prefix -= 1
     return prefix, old[prefix : len(old) - suffix], new[prefix : len(new) - suffix]
 
 
