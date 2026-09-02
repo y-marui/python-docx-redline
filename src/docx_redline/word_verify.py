@@ -130,7 +130,7 @@ def audit_declared_fonts(package: DocxPackage) -> set[str]:
 def _check_platform() -> None:
     if platform.system() != "Darwin":
         raise RedlineError(
-            "verify-word requires macOS with Microsoft Word installed; "
+            "this command requires macOS with Microsoft Word installed; "
             f"detected platform: {platform.system()}"
         )
 
