@@ -48,6 +48,14 @@ class WordVerifyResult:
         return not self.missing_required_fonts and not self.unexpected_fonts
 
 
+@dataclass
+class PdfExportResult:
+    word_version: str
+    page_count: int
+    pdf_path: str
+    pdf_sha256: str
+
+
 _FONT_ATTRS = ("ascii", "hAnsi", "eastAsia", "cs")
 _FONT_THEME_ATTRS = ("asciiTheme", "hAnsiTheme", "eastAsiaTheme", "cstheme")
 _DRAWINGML_NS = "http://schemas.openxmlformats.org/drawingml/2006/main"
@@ -122,7 +130,7 @@ def audit_declared_fonts(package: DocxPackage) -> set[str]:
 def _check_platform() -> None:
     if platform.system() != "Darwin":
         raise RedlineError(
-            "verify-word requires macOS with Microsoft Word installed; "
+            "this command requires macOS with Microsoft Word installed; "
             f"detected platform: {platform.system()}"
         )
 
@@ -208,6 +216,33 @@ def _rasterize_pdf(pdf_path: Path, png_dir: Path, runner: Runner) -> list[str]:
     return sorted(str(path) for path in png_dir.glob("page-*.png"))
 
 
+def _export_via_word(
+    input_path: Path, pdf_path: Path, run: Runner
+) -> tuple[str, int, str, Path]:
+    """Shared Word-driven export: platform/availability checks, the
+    AppleScript round-trip, and the resulting PDF's hash - used by both
+    `verify_word` and `export_pdf`.
+
+    Word resolves a relative "file name" against its own notion of the
+    current location (its last-used folder, iCloud Drive, etc.), not this
+    process's working directory - resolve to an absolute path so Word
+    reads/writes exactly where the caller meant, regardless of that.
+    """
+    input_path = input_path.resolve()
+    pdf_path = pdf_path.resolve()
+
+    _check_platform()
+    _check_word_available(run)
+
+    word_version, page_count = _run_applescript(input_path, pdf_path, run)
+    if not pdf_path.exists():
+        raise RedlineError(
+            f"Word reported success but no PDF was written to {pdf_path}"
+        )
+    pdf_sha256 = hashlib.sha256(pdf_path.read_bytes()).hexdigest()
+    return word_version, page_count, pdf_sha256, pdf_path
+
+
 def verify_word(
     input_path: Path,
     pdf_path: Path,
@@ -227,29 +262,16 @@ def verify_word(
     it's reported on the returned result (`.ok`), matching how `validate`
     reports check failures without aborting before showing the rest.
     """
-    # Word resolves a relative "file name" against its own notion of the
-    # current location (its last-used folder, iCloud Drive, etc.), not this
-    # process's working directory - resolve to an absolute path so Word
-    # reads/writes exactly where the caller meant, regardless of that.
-    input_path = input_path.resolve()
-    pdf_path = pdf_path.resolve()
-
     run = runner or _default_runner
-    _check_platform()
-    _check_word_available(run)
-
     declared = audit_declared_fonts(package)
     required = set(required_fonts)
     expected = set(expected_fonts)
     missing_required = sorted(required - declared)
     unexpected = sorted(declared - expected) if expected else []
 
-    word_version, page_count = _run_applescript(input_path, pdf_path, run)
-    if not pdf_path.exists():
-        raise RedlineError(
-            f"Word reported success but no PDF was written to {pdf_path}"
-        )
-    pdf_sha256 = hashlib.sha256(pdf_path.read_bytes()).hexdigest()
+    word_version, page_count, pdf_sha256, pdf_path = _export_via_word(
+        input_path, pdf_path, run
+    )
 
     png_paths: list[str] = []
     if png_dir is not None:
@@ -264,4 +286,29 @@ def verify_word(
         declared_fonts=sorted(declared),
         missing_required_fonts=missing_required,
         unexpected_fonts=unexpected,
+    )
+
+
+def export_pdf(
+    input_path: Path,
+    pdf_path: Path,
+    *,
+    runner: Runner | None = None,
+) -> PdfExportResult:
+    """Convert `input_path` to PDF via Microsoft Word (macOS only).
+
+    `input_path` is opened read-only and never modified. Raises
+    `RedlineError` for an unsupported platform, unavailable Word, or a
+    failed export - the same conditions `verify_word` raises for, since both
+    share the same Word round-trip via `_export_via_word`.
+    """
+    run = runner or _default_runner
+    word_version, page_count, pdf_sha256, pdf_path = _export_via_word(
+        input_path, pdf_path, run
+    )
+    return PdfExportResult(
+        word_version=word_version,
+        page_count=page_count,
+        pdf_path=str(pdf_path),
+        pdf_sha256=pdf_sha256,
     )

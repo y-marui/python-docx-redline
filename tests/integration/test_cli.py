@@ -13,7 +13,7 @@ from docx_redline.errors import RedlineError
 from docx_redline.ooxml import NSMAP
 from docx_redline.package import DocxPackage
 from docx_redline.text_ops import visible_text
-from docx_redline.word_verify import WordVerifyResult
+from docx_redline.word_verify import PdfExportResult, WordVerifyResult
 
 runner = CliRunner()
 
@@ -392,6 +392,123 @@ def test_verify_word_command_reports_platform_error(
     monkeypatch.setattr(cli_mod.word_verify_mod, "verify_word", fake_verify_word)
 
     result = runner.invoke(app, ["verify-word", str(docx), "--pdf", str(pdf)])
+
+    assert result.exit_code == 1
+    assert "requires macOS" in result.output
+
+
+def test_export_pdf_command_defaults_output_to_docx_path_with_pdf_extension(
+    monkeypatch, docx_factory, tmp_path: Path
+) -> None:
+    docx = docx_factory("doc.docx", [["Plain text."]])
+
+    def fake_export_pdf(input_path, pdf_path, **kwargs):
+        return PdfExportResult(
+            word_version="16.78",
+            page_count=1,
+            pdf_path=str(pdf_path),
+            pdf_sha256="deadbeef",
+        )
+
+    monkeypatch.setattr(cli_mod.word_verify_mod, "export_pdf", fake_export_pdf)
+
+    result = runner.invoke(app, ["export-pdf", str(docx)])
+
+    assert result.exit_code == 0, result.output
+    assert str(docx.with_suffix(".pdf")) in result.output
+
+
+def test_export_pdf_command_writes_to_output_option(
+    monkeypatch, docx_factory, tmp_path: Path
+) -> None:
+    docx = docx_factory("doc.docx", [["Plain text."]])
+    out = tmp_path / "converted.pdf"
+
+    def fake_export_pdf(input_path, pdf_path, **kwargs):
+        return PdfExportResult(
+            word_version="16.78",
+            page_count=1,
+            pdf_path=str(pdf_path),
+            pdf_sha256="deadbeef",
+        )
+
+    monkeypatch.setattr(cli_mod.word_verify_mod, "export_pdf", fake_export_pdf)
+
+    result = runner.invoke(app, ["export-pdf", str(docx), "--output", str(out)])
+
+    assert result.exit_code == 0, result.output
+    assert str(out) in result.output
+
+
+def test_export_pdf_command_reports_json(
+    monkeypatch, docx_factory, tmp_path: Path
+) -> None:
+    docx = docx_factory("doc.docx", [["Plain text."]])
+    out = tmp_path / "converted.pdf"
+
+    def fake_export_pdf(input_path, pdf_path, **kwargs):
+        return PdfExportResult(
+            word_version="16.78",
+            page_count=2,
+            pdf_path=str(pdf_path),
+            pdf_sha256="deadbeef",
+        )
+
+    monkeypatch.setattr(cli_mod.word_verify_mod, "export_pdf", fake_export_pdf)
+
+    result = runner.invoke(
+        app, ["export-pdf", str(docx), "--output", str(out), "--json"]
+    )
+
+    assert result.exit_code == 0, result.output
+    payload = json.loads(result.output)
+    assert payload["word_version"] == "16.78"
+    assert payload["page_count"] == 2
+
+
+def test_export_pdf_command_fails_when_output_already_exists(
+    monkeypatch, docx_factory, tmp_path: Path
+) -> None:
+    docx = docx_factory("doc.docx", [["Plain text."]])
+    out = tmp_path / "converted.pdf"
+    out.write_bytes(b"%PDF-existing")
+
+    def fake_export_pdf(input_path, pdf_path, **kwargs):
+        raise AssertionError("export_pdf should not run when output already exists")
+
+    monkeypatch.setattr(cli_mod.word_verify_mod, "export_pdf", fake_export_pdf)
+
+    result = runner.invoke(app, ["export-pdf", str(docx), "--output", str(out)])
+
+    assert result.exit_code == 1
+    assert "already exists" in result.output
+    assert out.read_bytes() == b"%PDF-existing"
+
+
+def test_export_pdf_command_fails_when_default_output_already_exists(
+    docx_factory, tmp_path: Path
+) -> None:
+    docx = docx_factory("doc.docx", [["Plain text."]])
+    docx.with_suffix(".pdf").write_bytes(b"%PDF-existing")
+
+    result = runner.invoke(app, ["export-pdf", str(docx)])
+
+    assert result.exit_code == 1
+    assert "already exists" in result.output
+
+
+def test_export_pdf_command_reports_platform_error(
+    monkeypatch, docx_factory, tmp_path: Path
+) -> None:
+    docx = docx_factory("doc.docx", [["Plain text."]])
+    out = tmp_path / "converted.pdf"
+
+    def fake_export_pdf(input_path, pdf_path, **kwargs):
+        raise RedlineError("verify-word requires macOS with Microsoft Word installed")
+
+    monkeypatch.setattr(cli_mod.word_verify_mod, "export_pdf", fake_export_pdf)
+
+    result = runner.invoke(app, ["export-pdf", str(docx), "--output", str(out)])
 
     assert result.exit_code == 1
     assert "requires macOS" in result.output

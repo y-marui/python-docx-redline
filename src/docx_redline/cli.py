@@ -565,6 +565,46 @@ def verify_word_cmd(
         raise typer.Exit(1)
 
 
+@app.command("export-pdf")
+def export_pdf_cmd(
+    input_path: Path = typer.Argument(..., exists=True, readable=True),
+    output: Path | None = typer.Option(
+        None,
+        "--output",
+        help=(
+            "Where to write the PDF. Defaults to input_path with its "
+            "extension replaced by .pdf."
+        ),
+    ),
+    json_output: bool = typer.Option(
+        False, "--json", help="Print machine-readable JSON."
+    ),
+) -> None:
+    """Convert a .docx to PDF via Microsoft Word (macOS only).
+
+    Opens `input_path` read-only through Microsoft Word automation and
+    exports it as a PDF - the input file is never modified. Refuses to
+    overwrite an existing output file.
+    """
+    out_path = output if output is not None else input_path.with_suffix(".pdf")
+    if out_path.exists():
+        _fail(f"output already exists: {out_path}")
+        return
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        result = word_verify_mod.export_pdf(input_path, out_path)
+    except RedlineError as error:
+        _fail(str(error))
+        return
+    if json_output:
+        typer.echo(json.dumps(result.__dict__, ensure_ascii=False, indent=2))
+    else:
+        typer.echo(
+            f"Word {result.word_version}: {result.page_count} page(s) -> "
+            f"{result.pdf_path}"
+        )
+
+
 def main() -> None:
     app()
 
