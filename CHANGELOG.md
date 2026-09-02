@@ -3,6 +3,11 @@
 ## [Unreleased]
 
 ### Added
+- New `export-pdf` command (macOS only): converts a `.docx` to PDF via the same
+  Microsoft Word automation `verify-word` uses, without the layout/font
+  verification overhead. Defaults to writing next to the input with its
+  extension replaced by `.pdf`; `--output` picks another path. Refuses to
+  overwrite an existing output file.
 - `validate`: new `run-properties-preserved` check flags formatting changes on
   text left untouched by tracked changes.
 - New `verify-word` command (macOS only): opens the input `.docx` read-only

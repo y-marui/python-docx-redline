@@ -41,6 +41,8 @@ make install
 | `accept-revisions` | 既存の変更履歴をすべて承諾した別ファイルを作る |
 | `enable-tracking` | Track Changes を有効化する |
 | `validate` | 納品前の安全確認（後述） |
+| `verify-word` | Microsoft Word（macOS限定）でレイアウト・ページ割りを検証し、フォントを監査する |
+| `export-pdf` | Microsoft Word（macOS限定）経由で `.docx` を PDF に変換する |
 
 ### `replace`：既定では一致が1件のときだけ実行する
 
@@ -88,6 +90,15 @@ docx-redline validate draft-fix1.docx --original draft.docx --max-deletion-lengt
 - `--contains` / `--not-contains`（複数指定可）で、特定の文言が残っている・消えていることを確認する
 
 いずれか1つでも失敗すれば終了コード1。
+
+### `export-pdf`：Microsoft Word（macOS限定）経由で `.docx` を PDF に変換する
+
+```sh
+docx-redline export-pdf draft.docx
+docx-redline export-pdf draft.docx --output review/draft.pdf
+```
+
+入力を読み取り専用でMicrosoft Word経由で開きPDFとして書き出す。入力の `.docx` 自体は変更しない。`--output` を省略した場合、入力と同じ場所に拡張子だけ `.pdf` に置き換えたパスへ出力する。出力先が既に存在する場合はエラーで止まり、上書きしない。
 
 ## Usage
 

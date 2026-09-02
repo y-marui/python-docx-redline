@@ -18,6 +18,7 @@ from docx_redline.word_verify import (
     _rasterize_pdf,
     _run_applescript,
     audit_declared_fonts,
+    export_pdf,
     verify_word,
 )
 
@@ -406,3 +407,66 @@ def test_verify_word_raises_when_pdf_missing_after_reported_success(
 
     with pytest.raises(RedlineError, match="no PDF was written"):
         verify_word(docx, pdf_path, package=package, runner=fake_run)
+
+
+# --- export_pdf end-to-end orchestration (all fakes) -----------------------------
+
+
+def test_export_pdf_returns_result_and_writes_pdf_hash(
+    monkeypatch, docx_factory, tmp_path: Path
+) -> None:
+    monkeypatch.setattr("docx_redline.word_verify.platform.system", lambda: "Darwin")
+    docx = docx_factory("doc.docx", [["Plain text."]])
+    pdf_path = tmp_path / "out.pdf"
+
+    def fake_run(args: list[str]) -> _FakeResult:
+        if args[0] == "osascript" and "id of application" in args[2]:
+            return _FakeResult(returncode=0)
+        pdf_path.write_bytes(b"%PDF-fake")
+        return _FakeResult(returncode=0, stdout="16.78|2")
+
+    result = export_pdf(docx, pdf_path, runner=fake_run)
+
+    assert result.word_version == "16.78"
+    assert result.page_count == 2
+    assert result.pdf_path == str(pdf_path)
+    assert result.pdf_sha256
+
+
+def test_export_pdf_raises_off_macos_before_touching_word(
+    monkeypatch, docx_factory, tmp_path: Path
+) -> None:
+    monkeypatch.setattr("docx_redline.word_verify.platform.system", lambda: "Linux")
+    docx = docx_factory("doc.docx", [["Plain text."]])
+    runner = _FakeRunner()
+
+    with pytest.raises(RedlineError, match="macOS"):
+        export_pdf(docx, tmp_path / "out.pdf", runner=runner)
+    assert runner.calls == []
+
+
+def test_export_pdf_raises_when_word_unavailable(
+    monkeypatch, docx_factory, tmp_path: Path
+) -> None:
+    monkeypatch.setattr("docx_redline.word_verify.platform.system", lambda: "Darwin")
+    docx = docx_factory("doc.docx", [["Plain text."]])
+    runner = _FakeRunner(results=[_FakeResult(returncode=1, stderr="no such app")])
+
+    with pytest.raises(RedlineError, match="not available"):
+        export_pdf(docx, tmp_path / "out.pdf", runner=runner)
+
+
+def test_export_pdf_raises_when_pdf_missing_after_reported_success(
+    monkeypatch, docx_factory, tmp_path: Path
+) -> None:
+    monkeypatch.setattr("docx_redline.word_verify.platform.system", lambda: "Darwin")
+    docx = docx_factory("doc.docx", [["Plain text."]])
+    pdf_path = tmp_path / "out.pdf"
+
+    def fake_run(args: list[str]) -> _FakeResult:
+        if args[0] == "osascript" and "id of application" in args[2]:
+            return _FakeResult(returncode=0)
+        return _FakeResult(returncode=0, stdout="16.78|1")
+
+    with pytest.raises(RedlineError, match="no PDF was written"):
+        export_pdf(docx, pdf_path, runner=fake_run)

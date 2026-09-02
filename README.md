@@ -48,6 +48,8 @@ Once built, install it as a standalone command from any other project with
 | `accept-revisions` | Write a separate copy with all existing revisions accepted |
 | `enable-tracking` | Turn on Track Changes |
 | `validate` | Pre-delivery safety checks (see below) |
+| `verify-word` | Verify layout/pagination via Microsoft Word (macOS only) and audit fonts |
+| `export-pdf` | Convert a `.docx` to PDF via Microsoft Word (macOS only) |
 
 ### `replace`: exactly one match by default
 
@@ -107,6 +109,18 @@ inserted text, comment anchors all present and matched, and — when
 `--number-pattern`) preserved, and formatting on untouched text unchanged.
 `--contains` / `--not-contains` (repeatable) assert specific fragments
 survived or were removed. Any failing check exits with status 1.
+
+### `export-pdf`: convert a `.docx` to PDF via Microsoft Word (macOS only)
+
+```sh
+docx-redline export-pdf draft.docx
+docx-redline export-pdf draft.docx --output review/draft.pdf
+```
+
+Opens the input read-only through Microsoft Word automation and exports it
+as a PDF; the input `.docx` is never modified. Without `--output`, the PDF
+is written next to the input with its extension replaced by `.pdf`. Refuses
+to overwrite an existing output file.
 
 ## Usage
 
