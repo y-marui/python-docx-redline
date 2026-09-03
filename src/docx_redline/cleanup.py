@@ -6,7 +6,10 @@ from dataclasses import dataclass
 
 from lxml import etree
 
+from .errors import RedlineError
 from .ooxml import NSMAP, w
+
+_COMMENT_ANCHOR_TAGS = ("commentRangeStart", "commentRangeEnd", "commentReference")
 
 
 @dataclass
@@ -36,11 +39,100 @@ def strip_format_revisions(document: etree._Element) -> int:
     return len(changes)
 
 
+def _is_inside(node: etree._Element, ancestor: etree._Element) -> bool:
+    while node is not None:
+        if node is ancestor:
+            return True
+        node = node.getparent()
+    return False
+
+
+def _survives_outside(
+    document: etree._Element, tag: str, comment_id: str | None, deletion: etree._Element
+) -> bool:
+    """Whether a `w:<tag>` for `comment_id` exists anywhere outside `deletion`."""
+    matches = document.xpath(f".//w:{tag}[@w:id=$id]", namespaces=NSMAP, id=comment_id)
+    return any(not _is_inside(match, deletion) for match in matches)
+
+
+def _comment_relocation_node(anchor: etree._Element) -> etree._Element:
+    """The element to actually move for `anchor`.
+
+    `commentRangeStart`/`commentRangeEnd` move as themselves, but OOXML
+    requires a `commentReference` to live inside a `w:r`, so that run moves
+    as a whole. Raises if the run carries anything beyond the reference and
+    its `w:rPr` - splitting that safely isn't implemented.
+    """
+    if etree.QName(anchor).localname != "commentReference":
+        return anchor
+    run = anchor.getparent()
+    if run is None or run.tag != w("r"):
+        return anchor
+    extra = [child for child in run if child is not anchor and child.tag != w("rPr")]
+    if extra:
+        raise RedlineError(
+            "cannot accept revisions: a commentReference shares a run with "
+            "other content, so it cannot be safely relocated out of an "
+            "accepted deletion"
+        )
+    return run
+
+
+def _relocate_comment_anchors(
+    document: etree._Element, deletion: etree._Element
+) -> None:
+    """Move comment anchors out of `deletion` before it is discarded.
+
+    An anchor whose comment has no surviving occurrence anywhere else in the
+    document is left in place - the whole comment is being removed together,
+    which stays internally consistent. Otherwise, dropping just the anchors
+    inside `deletion` would leave the comment with a partial anchor, so they
+    are relocated to the position `deletion` currently occupies instead.
+    """
+    anchors = deletion.xpath(
+        " | ".join(f".//w:{tag}" for tag in _COMMENT_ANCHOR_TAGS), namespaces=NSMAP
+    )
+    if not anchors:
+        return
+    ids = {anchor.get(w("id")) for anchor in anchors}
+    ids_to_preserve = {
+        comment_id
+        for comment_id in ids
+        if any(
+            _survives_outside(document, tag, comment_id, deletion)
+            for tag in _COMMENT_ANCHOR_TAGS
+        )
+    }
+    if not ids_to_preserve:
+        return
+    parent = deletion.getparent()
+    if parent is None:
+        raise RedlineError(
+            "cannot accept revisions: a deletion holding a comment anchor has "
+            "no parent to relocate it to"
+        )
+    index = parent.index(deletion)
+    moved: list[etree._Element] = []
+    for anchor in anchors:
+        if anchor.get(w("id")) not in ids_to_preserve:
+            continue
+        node = _comment_relocation_node(anchor)
+        if node in moved:
+            continue
+        moved.append(node)
+        current_parent = node.getparent()
+        if current_parent is not None:
+            current_parent.remove(node)
+        parent.insert(index, node)
+        index += 1
+
+
 def accept_revisions(document: etree._Element) -> AcceptedRevisions:
     """Accept text, move, and property revisions in one WordprocessingML tree."""
     accepted = AcceptedRevisions()
     emptied_paragraphs: list[etree._Element] = []
     for deletion in document.xpath(".//w:del | .//w:moveFrom", namespaces=NSMAP):
+        _relocate_comment_anchors(document, deletion)
         paragraph = deletion.getparent()
         while paragraph is not None and paragraph.tag != w("p"):
             paragraph = paragraph.getparent()

@@ -80,3 +80,12 @@
   text with the wrong occurrence of a repeated character/phrase; it
   reconstructs each paragraph's original text from the current document's
   own deletions instead of fuzzy-matching against the original.
+- `accept-revisions`: no longer silently leaves a Word comment with a partial
+  anchor (some but not all of `commentRangeStart`/`commentRangeEnd`/
+  `commentReference`) when accepting a `w:del`/`w:moveFrom` that contains one
+  but not all of a comment's anchor elements - the surviving anchor is now
+  relocated to the accepted deletion's position instead of being discarded
+  with it. Refuses to write output (actionable error) for the one case that
+  can't be relocated safely: a `commentReference` sharing a run with other
+  content. A deletion that contains an entire comment's anchor removes it as
+  before. ([#22](https://github.com/y-marui/python-docx-redline/issues/22))

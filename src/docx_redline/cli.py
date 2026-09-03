@@ -399,8 +399,12 @@ def accept_revisions_cmd(
     package = DocxPackage(input_path)
     accepted = AcceptedRevisions()
     parts = _wordprocessingml_roots(package)
-    for _, document in parts:
-        accepted.add(accept_revisions(document))
+    try:
+        for _, document in parts:
+            accepted.add(accept_revisions(document))
+    except RedlineError as error:
+        _fail(str(error))
+        return
     _save(package, out)
     typer.echo(
         "OK: accepted "

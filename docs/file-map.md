@@ -42,8 +42,14 @@ src/docx_redline/
     - used by: validate, cli
 
   cleanup.py
-    - imports: ooxml
-    - exports: strip_format_revisions()
+    - imports: errors, ooxml
+    - exports: AcceptedRevisions, strip_format_revisions(), accept_revisions()
+    - accept_revisions() relocates a comment's commentRangeStart/
+      commentRangeEnd/commentReference out of an accepted w:del/w:moveFrom
+      when the comment survives elsewhere in the document, so accepting
+      never leaves a partial anchor; raises RedlineError if a
+      commentReference can't be safely relocated (shares a run with other
+      content)
     - used by: cli
 
   inspect.py
