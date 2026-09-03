@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from lxml import etree
 
@@ -14,12 +14,19 @@ _COMMENT_ANCHOR_TAGS = ("commentRangeStart", "commentRangeEnd", "commentReferenc
 
 @dataclass
 class AcceptedRevisions:
-    """Counts of revision nodes accepted from one WordprocessingML part."""
+    """Counts of revision nodes accepted from one WordprocessingML part.
+
+    `removed_comment_ids` collects ids of comments whose entire anchor was
+    accepted away together (the whole comment, not just an endpoint) -
+    candidates for the caller to also drop from word/comments.xml, once
+    confirmed orphaned across every processed part.
+    """
 
     insertions: int = 0
     deletions: int = 0
     property_changes: int = 0
     empty_paragraphs: int = 0
+    removed_comment_ids: set[str] = field(default_factory=set)
 
     def add(self, other: AcceptedRevisions) -> None:
         """Add counts from another processed part."""
@@ -27,6 +34,7 @@ class AcceptedRevisions:
         self.deletions += other.deletions
         self.property_changes += other.property_changes
         self.empty_paragraphs += other.empty_paragraphs
+        self.removed_comment_ids |= other.removed_comment_ids
 
 
 def strip_format_revisions(document: etree._Element) -> int:
@@ -71,31 +79,35 @@ def _comment_relocation_node(anchor: etree._Element) -> etree._Element:
     extra = [child for child in run if child is not anchor and child.tag != w("rPr")]
     if extra:
         raise RedlineError(
-            "cannot accept revisions: a commentReference shares a run with "
-            "other content, so it cannot be safely relocated out of an "
-            "accepted deletion"
+            f"cannot accept revisions: commentReference {anchor.get(w('id'))} "
+            "shares a run with other content, so it cannot be safely "
+            "relocated out of an accepted deletion"
         )
     return run
 
 
 def _relocate_comment_anchors(
     document: etree._Element, deletion: etree._Element
-) -> None:
+) -> set[str]:
     """Move comment anchors out of `deletion` before it is discarded.
 
-    An anchor whose comment has no surviving occurrence anywhere else in the
-    document is left in place - the whole comment is being removed together,
-    which stays internally consistent. Otherwise, dropping just the anchors
-    inside `deletion` would leave the comment with a partial anchor, so they
-    are relocated to the position `deletion` currently occupies instead.
+    A comment id with no surviving anchor occurrence anywhere else in the
+    document is left untouched - the whole comment is being removed
+    together, which stays internally consistent - and returned to the
+    caller as a candidate to also drop from word/comments.xml. Otherwise,
+    each anchor *kind* (`commentRangeStart`/`commentRangeEnd`/
+    `commentReference`) that would otherwise vanish entirely is relocated to
+    the position `deletion` currently occupies; a kind that already survives
+    elsewhere (e.g. duplicated across a w:moveFrom/w:moveTo pair) is simply
+    dropped rather than relocated into a duplicate.
     """
     anchors = deletion.xpath(
         " | ".join(f".//w:{tag}" for tag in _COMMENT_ANCHOR_TAGS), namespaces=NSMAP
     )
     if not anchors:
-        return
+        return set()
     ids = {anchor.get(w("id")) for anchor in anchors}
-    ids_to_preserve = {
+    ids_with_survivor = {
         comment_id
         for comment_id in ids
         if any(
@@ -103,28 +115,34 @@ def _relocate_comment_anchors(
             for tag in _COMMENT_ANCHOR_TAGS
         )
     }
-    if not ids_to_preserve:
-        return
-    parent = deletion.getparent()
-    if parent is None:
-        raise RedlineError(
-            "cannot accept revisions: a deletion holding a comment anchor has "
-            "no parent to relocate it to"
+    to_relocate = [
+        anchor
+        for anchor in anchors
+        if anchor.get(w("id")) in ids_with_survivor
+        and not _survives_outside(
+            document, etree.QName(anchor).localname, anchor.get(w("id")), deletion
         )
-    index = parent.index(deletion)
-    moved: list[etree._Element] = []
-    for anchor in anchors:
-        if anchor.get(w("id")) not in ids_to_preserve:
-            continue
-        node = _comment_relocation_node(anchor)
-        if node in moved:
-            continue
-        moved.append(node)
-        current_parent = node.getparent()
-        if current_parent is not None:
-            current_parent.remove(node)
-        parent.insert(index, node)
-        index += 1
+    ]
+    if to_relocate:
+        parent = deletion.getparent()
+        if parent is None:
+            raise RedlineError(
+                "cannot accept revisions: a deletion holding a comment "
+                "anchor has no parent to relocate it to"
+            )
+        index = parent.index(deletion)
+        moved: list[etree._Element] = []
+        for anchor in to_relocate:
+            node = _comment_relocation_node(anchor)
+            if node in moved:
+                continue
+            moved.append(node)
+            current_parent = node.getparent()
+            if current_parent is not None:
+                current_parent.remove(node)
+            parent.insert(index, node)
+            index += 1
+    return ids - ids_with_survivor
 
 
 def accept_revisions(document: etree._Element) -> AcceptedRevisions:
@@ -132,7 +150,7 @@ def accept_revisions(document: etree._Element) -> AcceptedRevisions:
     accepted = AcceptedRevisions()
     emptied_paragraphs: list[etree._Element] = []
     for deletion in document.xpath(".//w:del | .//w:moveFrom", namespaces=NSMAP):
-        _relocate_comment_anchors(document, deletion)
+        accepted.removed_comment_ids |= _relocate_comment_anchors(document, deletion)
         paragraph = deletion.getparent()
         while paragraph is not None and paragraph.tag != w("p"):
             paragraph = paragraph.getparent()

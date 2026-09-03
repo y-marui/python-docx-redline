@@ -405,13 +405,16 @@ def accept_revisions_cmd(
     except RedlineError as error:
         _fail(str(error))
         return
+    removed_comments = comments_mod.remove_orphaned_comments(
+        package, parts, accepted.removed_comment_ids
+    )
     _save(package, out)
     typer.echo(
         "OK: accepted "
         f"{accepted.insertions} insertion(s), {accepted.deletions} deletion(s), and "
         f"{accepted.property_changes} property change(s); removed "
-        f"{accepted.empty_paragraphs} empty paragraph(s) across {len(parts)} "
-        f"part(s) -> {out}"
+        f"{accepted.empty_paragraphs} empty paragraph(s) and {removed_comments} "
+        f"orphaned comment definition(s) across {len(parts)} part(s) -> {out}"
     )
 
 

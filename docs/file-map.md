@@ -38,18 +38,28 @@ src/docx_redline/
 
   comments.py
     - imports: ooxml, package
-    - exports: Comment, list_comments(), add_comment(), strip_comments()
+    - exports: Comment, list_comments(), add_comment(), strip_comments(),
+      remove_orphaned_comments()
+    - remove_orphaned_comments() drops word/comments.xml entries for ids
+      cleanup.accept_revisions() reports as accepted away whole, once
+      confirmed unanchored across every part actually processed (called
+      from cli's accept-revisions command, not from cleanup.py itself, to
+      keep cleanup.py part-agnostic)
     - used by: validate, cli
 
   cleanup.py
     - imports: errors, ooxml
     - exports: AcceptedRevisions, strip_format_revisions(), accept_revisions()
-    - accept_revisions() relocates a comment's commentRangeStart/
-      commentRangeEnd/commentReference out of an accepted w:del/w:moveFrom
-      when the comment survives elsewhere in the document, so accepting
-      never leaves a partial anchor; raises RedlineError if a
-      commentReference can't be safely relocated (shares a run with other
-      content)
+    - accept_revisions() relocates each comment anchor kind
+      (commentRangeStart/commentRangeEnd/commentReference) that would
+      otherwise vanish out of an accepted w:del/w:moveFrom, per anchor kind
+      rather than per comment id, so a kind already surviving elsewhere
+      (e.g. duplicated across a w:moveFrom/w:moveTo pair) is dropped instead
+      of duplicated; an id with nothing surviving anywhere is left to be
+      removed as a whole and reported via AcceptedRevisions.removed_comment_ids
+      for the caller to also orphan-check against comments.xml; raises
+      RedlineError (naming the comment id) if a commentReference can't be
+      safely relocated (shares a run with other content)
     - used by: cli
 
   inspect.py

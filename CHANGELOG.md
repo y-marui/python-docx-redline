@@ -83,9 +83,13 @@
 - `accept-revisions`: no longer silently leaves a Word comment with a partial
   anchor (some but not all of `commentRangeStart`/`commentRangeEnd`/
   `commentReference`) when accepting a `w:del`/`w:moveFrom` that contains one
-  but not all of a comment's anchor elements - the surviving anchor is now
-  relocated to the accepted deletion's position instead of being discarded
-  with it. Refuses to write output (actionable error) for the one case that
-  can't be relocated safely: a `commentReference` sharing a run with other
-  content. A deletion that contains an entire comment's anchor removes it as
-  before. ([#22](https://github.com/y-marui/python-docx-redline/issues/22))
+  but not all of a comment's anchor elements - each anchor kind that would
+  otherwise vanish is relocated to the accepted deletion's position instead
+  of being discarded with it, while a kind already surviving elsewhere (e.g.
+  duplicated across a `w:moveFrom`/`w:moveTo` pair) is dropped rather than
+  duplicated. Refuses to write output (with the comment id in the error) for
+  the one case that can't be relocated safely: a `commentReference` sharing
+  a run with other content. A deletion that contains an entire comment's
+  anchor still removes it as before, and now also drops the comment's now-
+  orphaned `word/comments.xml` entry once confirmed unanchored anywhere else
+  in the package. ([#22](https://github.com/y-marui/python-docx-redline/issues/22))

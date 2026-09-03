@@ -227,6 +227,7 @@ def test_accept_revisions_removes_whole_comment_deleted_together(docx_factory) -
     accepted = accept_revisions(document)
 
     assert accepted.deletions == 1
+    assert accepted.removed_comment_ids == {"5"}
     assert _anchor_counts(document, "5") == {
         "commentRangeStart": 0,
         "commentRangeEnd": 0,
@@ -285,5 +286,48 @@ def test_accept_revisions_raises_when_comment_reference_shares_run_with_other_co
     etree.SubElement(mixed_run, w("commentReference")).set(w("id"), "5")
     paragraph.append(deletion)
 
-    with pytest.raises(RedlineError):
+    with pytest.raises(RedlineError, match="5"):
         accept_revisions(document)
+
+
+def test_accept_revisions_drops_duplicate_anchor_surviving_in_move_destination(
+    docx_factory,
+) -> None:
+    """A commentRangeStart duplicated across a w:moveFrom/w:moveTo pair must
+    not be relocated into a second copy alongside the one already surviving
+    in the w:moveTo destination.
+    """
+    docx = docx_factory("doc.docx", [[]])
+    document = DocxPackage(docx).xml("word/document.xml")
+    paragraph = document.xpath(".//w:p", namespaces=NSMAP)[0]
+
+    move_from = etree.SubElement(paragraph, w("moveFrom"))
+    move_from.set(w("id"), "1")
+    from_start = etree.SubElement(move_from, w("commentRangeStart"))
+    from_start.set(w("id"), "5")
+    moved_run = etree.SubElement(move_from, w("r"))
+    etree.SubElement(moved_run, w("delText")).text = "Moved."
+
+    move_to = etree.SubElement(paragraph, w("moveTo"))
+    move_to.set(w("id"), "2")
+    to_start = etree.SubElement(move_to, w("commentRangeStart"))
+    to_start.set(w("id"), "5")
+    kept_run = etree.SubElement(move_to, w("r"))
+    etree.SubElement(kept_run, w("t")).text = "Moved."
+
+    range_end = etree.Element(w("commentRangeEnd"))
+    range_end.set(w("id"), "5")
+    paragraph.append(range_end)
+    paragraph.append(_comment_reference_run("5"))
+
+    accepted = accept_revisions(document)
+
+    assert accepted.deletions == 1
+    assert accepted.insertions == 1
+    assert accepted.removed_comment_ids == set()
+    assert _anchor_counts(document, "5") == {
+        "commentRangeStart": 1,
+        "commentRangeEnd": 1,
+        "commentReference": 1,
+    }
+    assert document.xpath(".//w:commentRangeStart", namespaces=NSMAP)[0] is to_start

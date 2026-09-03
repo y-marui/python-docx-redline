@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import re
+from collections.abc import Iterable
 from dataclasses import dataclass
 
 from lxml import etree
@@ -121,6 +122,39 @@ def add_comment(
     comment_run = etree.SubElement(comment_paragraph, w("r"))
     etree.SubElement(comment_run, w("t")).text = text
     return comment_id
+
+
+def remove_orphaned_comments(
+    package: DocxPackage,
+    parts: Iterable[tuple[str, etree._Element]],
+    candidate_ids: set[str],
+) -> int:
+    """Drop word/comments.xml entries in `candidate_ids` with no anchor left.
+
+    `candidate_ids` comes from `accept_revisions` accepting a deletion that
+    contained a comment's entire anchor together - consistent on its own,
+    but only safe to also remove the comment's definition once confirmed
+    that id has no surviving `commentRangeStart`/`commentRangeEnd`/
+    `commentReference` anywhere across the parts actually processed.
+    """
+    if not candidate_ids or not package.has_part(COMMENTS_PART):
+        return 0
+    still_anchored = {
+        anchor.get(w("id"))
+        for _, document in parts
+        for tag in ("commentRangeStart", "commentRangeEnd", "commentReference")
+        for anchor in document.xpath(f".//w:{tag}", namespaces=NSMAP)
+    }
+    orphaned = candidate_ids - still_anchored
+    if not orphaned:
+        return 0
+    root = package.xml(COMMENTS_PART)
+    removed = 0
+    for comment in root.xpath("./w:comment", namespaces=NSMAP):
+        if comment.get(w("id")) in orphaned:
+            root.remove(comment)
+            removed += 1
+    return removed
 
 
 def strip_comments(package: DocxPackage) -> None:

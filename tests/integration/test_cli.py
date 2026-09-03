@@ -580,6 +580,7 @@ def test_accept_revisions_command_fails_loudly_on_unsafe_comment_anchor(
 
     assert result.exit_code == 1
     assert "commentReference" in result.output
+    assert "5" in result.output
     assert not out.exists()
 
 
@@ -623,6 +624,66 @@ def test_accept_revisions_output_passes_validate_after_relocating_comment_anchor
         app, ["accept-revisions", str(source), "--out", str(out)]
     )
     assert accept_result.exit_code == 0, accept_result.output
+
+    validate_result = runner.invoke(
+        app,
+        [
+            "validate",
+            str(out),
+            "--original",
+            str(source),
+            "--no-require-changes",
+        ],
+    )
+
+    assert validate_result.exit_code == 0, validate_result.output
+    assert "[PASS] comments-consistent" in validate_result.output
+
+
+def test_accept_revisions_drops_orphaned_comment_definition_when_whole_anchor_removed(
+    docx_factory, tmp_path: Path
+) -> None:
+    docx = docx_factory("doc.docx", [["Kept."]])
+    package = DocxPackage(docx)
+    document = package.xml("word/document.xml")
+    paragraph = document.xpath(".//w:p", namespaces=NSMAP)[0]
+
+    deletion = etree.Element(w("del"))
+    deletion.set(w("id"), "1")
+    range_start = etree.SubElement(deletion, w("commentRangeStart"))
+    range_start.set(w("id"), "5")
+    deleted_run = etree.SubElement(deletion, w("r"))
+    etree.SubElement(deleted_run, w("delText")).text = "Deleted."
+    range_end = etree.SubElement(deletion, w("commentRangeEnd"))
+    range_end.set(w("id"), "5")
+    reference_run = etree.SubElement(deletion, w("r"))
+    reference_rpr = etree.SubElement(reference_run, w("rPr"))
+    etree.SubElement(reference_rpr, w("rStyle")).set(w("val"), "CommentReference")
+    etree.SubElement(reference_run, w("commentReference")).set(w("id"), "5")
+    paragraph.append(deletion)
+
+    comments_root = etree.fromstring(
+        b'<w:comments xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">'
+        b'<w:comment w:id="5" w:author="Tester" w:date="2024-01-01T00:00:00Z">'
+        b"<w:p><w:r><w:t>A note.</w:t></w:r></w:p></w:comment></w:comments>"
+    )
+    package.new_xml("word/comments.xml", comments_root)
+    enable_tracking(package.xml("word/settings.xml"))
+
+    source = tmp_path / "source.docx"
+    package.save(source)
+    out = tmp_path / "accepted.docx"
+
+    accept_result = runner.invoke(
+        app, ["accept-revisions", str(source), "--out", str(out)]
+    )
+
+    assert accept_result.exit_code == 0, accept_result.output
+    assert "1 orphaned comment definition(s)" in accept_result.output
+    accepted = DocxPackage(out)
+    assert (
+        accepted.xml("word/comments.xml").xpath("./w:comment", namespaces=NSMAP) == []
+    )
 
     validate_result = runner.invoke(
         app,
