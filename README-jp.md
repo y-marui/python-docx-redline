@@ -25,6 +25,8 @@ make install
 
 一度ビルドしてインストールすれば、他のプロジェクトから `uv tool install --from git+https://github.com/y-marui/python-docx-redline docx-redline` として単体コマンドを導入できる。
 
+Shell completionを有効にするには `docx-redline --install-completion` を実行する（現在のシェル用のcompletionを検出・有効化する）。completionスクリプトの内容を確認したい場合は `docx-redline --show-completion` を使う。
+
 ## Commands
 
 | コマンド | 用途 |

@@ -3,6 +3,9 @@
 ## [Unreleased]
 
 ### Added
+- `--version`/`-V` flag prints the installed version and exits. Shell
+  completion is also available via the existing typer-provided
+  `--install-completion`/`--show-completion` flags (see README).
 - New `export-pdf` command (macOS only): converts a `.docx` to PDF via the same
   Microsoft Word automation `verify-word` uses, without the layout/font
   verification overhead. Defaults to writing next to the input with its

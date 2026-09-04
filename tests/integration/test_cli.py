@@ -698,3 +698,17 @@ def test_accept_revisions_drops_orphaned_comment_definition_when_whole_anchor_re
 
     assert validate_result.exit_code == 0, validate_result.output
     assert "[PASS] comments-consistent" in validate_result.output
+
+
+def test_version_flag_prints_version_and_exits() -> None:
+    result = runner.invoke(app, ["--version"])
+
+    assert result.exit_code == 0, result.output
+    assert result.output.strip() == f"docx-redline {cli_mod.__version__}"
+
+
+def test_version_short_flag_matches_long_flag() -> None:
+    result = runner.invoke(app, ["-V"])
+
+    assert result.exit_code == 0, result.output
+    assert result.output.strip() == f"docx-redline {cli_mod.__version__}"

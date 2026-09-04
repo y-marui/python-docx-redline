@@ -32,6 +32,10 @@ make install
 Once built, install it as a standalone command from any other project with
 `uv tool install --from git+https://github.com/y-marui/python-docx-redline docx-redline`.
 
+Run `docx-redline --install-completion` to enable shell completion for your
+current shell. Use `docx-redline --show-completion` to see the completion
+script itself.
+
 ## Commands
 
 | Command | Purpose |
