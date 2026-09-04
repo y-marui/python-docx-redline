@@ -8,6 +8,7 @@ from pathlib import Path
 import typer
 from lxml import etree
 
+from . import __version__
 from . import comments as comments_mod
 from . import validate as validate_mod
 from . import word_verify as word_verify_mod
@@ -27,6 +28,26 @@ from .text_ops import (
 app = typer.Typer(
     help="Safe, minimal Word (.docx) tracked-change editing.", no_args_is_help=True
 )
+
+
+def _version_callback(value: bool) -> None:
+    if value:
+        typer.echo(f"docx-redline {__version__}")
+        raise typer.Exit()
+
+
+@app.callback()
+def _app_options(
+    version: bool = typer.Option(
+        False,
+        "--version",
+        "-V",
+        callback=_version_callback,
+        is_eager=True,
+        help="Show the version and exit.",
+    ),
+) -> None:
+    pass
 
 
 def _document(package: DocxPackage) -> etree._Element:
