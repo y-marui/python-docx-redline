@@ -46,15 +46,15 @@ Shell completionを有効にするには `docx-redline --install-completion` を
 | `verify-word` | Microsoft Word（macOS限定）でレイアウト・ページ割りを検証し、フォントを監査する |
 | `export-pdf` | Microsoft Word（macOS限定）経由で `.docx` を PDF に変換する |
 
-### `replace`：既定では一致が1件のときだけ実行する
+### `replace`: exactly one match by default
 
 ```sh
-docx-redline replace draft.docx "旧い表現" "新しい表現" --out draft-fix1.docx
+docx-redline replace draft.docx "旧い表現" "新しい表現" --out draft-fix1.docx --author "Review Agent"
 ```
 
 一致が複数ある場合はエラーで止まる。誤った箇所を書き換える事故を防ぐための既定動作。意図して複数ある場合は `--occurrence N`（N番目だけ）か `--all`（全件）を指定する。`--paragraph-contains TEXT` で探索範囲を特定の段落に絞ることもできる。
 
-### `replace-batch`：一連の置換をまとめて適用する
+### `replace-batch`: apply a sequence of edits in one pass
 
 ```json
 [
@@ -64,12 +64,12 @@ docx-redline replace draft.docx "旧い表現" "新しい表現" --out draft-fix
 ```
 
 ```sh
-docx-redline replace-batch draft.docx --pairs pairs.json --out draft-fix1.docx
+docx-redline replace-batch draft.docx --pairs pairs.json --out draft-fix1.docx --author "Review Agent"
 ```
 
 `all` / `occurrence` / `bold` / `paragraph_contains` を各要素に指定することもできる（`replace` の同名オプションと同じ意味）。
 
-### `accept-revisions`：既存の変更履歴を承諾したレビュー用コピーを作る
+### `accept-revisions`: create a review copy with existing revisions accepted
 
 ```sh
 docx-redline accept-revisions draft.docx --out draft-accepted.docx
@@ -77,7 +77,11 @@ docx-redline accept-revisions draft.docx --out draft-accepted.docx
 
 元ファイルを変更せず、本文・ヘッダー・フッター・脚注などの WordprocessingML パートに含まれる既存の挿入、削除、移動、および書式変更履歴を承諾する。コメントと無関係なパッケージ部品は保持する。出力には、承諾した変更と削除した空段落の件数を表示する。
 
-### `validate`：納品前の安全確認
+### Authorship
+
+変更履歴やコメントを作成するすべてのコマンドは `--author` の指定を必須とする。レビューを実際に行う人物またはコードエージェントの名前を渡すこと。本ツールは汎用的なレビュアー名を自動生成しない。
+
+### `validate`: pre-delivery safety checks
 
 ```sh
 docx-redline validate draft-fix1.docx --original draft.docx --max-deletion-length 60
@@ -93,7 +97,7 @@ docx-redline validate draft-fix1.docx --original draft.docx --max-deletion-lengt
 
 いずれか1つでも失敗すれば終了コード1。
 
-### `export-pdf`：Microsoft Word（macOS限定）経由で `.docx` を PDF に変換する
+### `export-pdf`: convert a `.docx` to PDF via Microsoft Word (macOS only)
 
 ```sh
 docx-redline export-pdf draft.docx
@@ -116,7 +120,7 @@ make all    # lint + type + test
 | `make test` | `pytest` |
 | `make all` | lint + type + test |
 
-## 既知の制約（v1）
+## Known limitations (v1)
 
 - 編集対象は `word/document.xml`（本文）のみ。ヘッダー・フッター内の本文置換は未対応（`strip-comments` のコメント除去はヘッダー・フッターも対象）
 - 表内の段落も `replace` の対象になるが、表の構造そのもの（行・列の追加削除）は扱わない
