@@ -32,15 +32,18 @@ OOXMLを直接いじる使い捨てPythonスクリプトを書いていたのを
 
 **技術スタック:**
 
+バージョン管理・パッケージ管理・Lint/Format・型チェックの一般方針は
+[docs/dev-charter/topics/python/PYTHON_DEV_ENV.md](docs/dev-charter/topics/python/PYTHON_DEV_ENV.md)
+（CLI 部分は
+[docs/dev-charter/topics/python/PYTHON_CLI.md](docs/dev-charter/topics/python/PYTHON_CLI.md)）
+を参照。
+
+主要依存:
+
 | 項目 | バージョン |
 |------|-----------|
-| Python | ^3.11 |
 | typer | ^0.12（CLI） |
-| lxml | ^5.0（OOXML操作。型スタックがないため `[[tool.mypy.overrides]]` で ignore_missing_imports） |
-| uv | 最新安定版 |
-| pytest | ^8 |
-| ruff | ^0.3（linter / formatter, line-length=88, select: E/F/I/UP） |
-| mypy | ^1.8（strict モード） |
+| lxml | ^5.0（OOXML操作。型スタブがないため `[[tool.mypy.overrides]]` で ignore_missing_imports） |
 
 **主要ディレクトリ:**
 
