@@ -62,6 +62,11 @@
   ([#11](https://github.com/y-marui/python-docx-redline/issues/11))
 
 ### Fixed
+- `pyproject.toml`'s `[tool.ruff] exclude` replaced ruff's default ignore list
+  instead of adding to it; switched to `extend-exclude` and narrowed the
+  scope to `docs/dev-charter` (the vendored subtree) instead of all of `docs`.
+- `powershell-lint` pre-commit hook now excludes `docs/dev-charter/`, matching
+  every other repo's convention of not linting the vendored subtree.
 - `validate`: `no-formatting-insertions` no longer flags an insertion whose
   run properties exactly match the `w:del` it immediately replaces - a
   formatting-preserving edit, not a newly introduced one. An insertion that
