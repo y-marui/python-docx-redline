@@ -30,7 +30,8 @@ packages = ["src/docx_redline"]
 line-length = 88
 target-version = "py311"
 # dev-charter is vendored, read-only documentation rather than project code.
-exclude = ["docs"]
+# extend-exclude (not exclude) so ruff's own default ignore list is kept too.
+extend-exclude = ["docs/dev-charter"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP"]
