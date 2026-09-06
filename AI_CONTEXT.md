@@ -5,7 +5,7 @@
 
 ---
 
-## 参照順序（AI 向け）
+## Reference Order (for AI)
 
 AI はタスク開始時に以下の順で参照する:
 

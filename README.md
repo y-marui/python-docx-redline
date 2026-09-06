@@ -95,6 +95,8 @@ parts, then reports the accepted-change and empty-paragraph counts.
 
 ### Authorship
 
+<!-- Kept in sync with README-jp.md; see LANGUAGE_POLICY.md. -->
+
 Every command that creates tracked revisions or comments requires `--author`.
 Pass the actual name of the person or code agent performing the review; the
 tool does not invent a generic reviewer identity.

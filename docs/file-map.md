@@ -1,6 +1,6 @@
 # File Map
 
-## ファイル依存マップ
+## File Dependency Map
 
 ```
 src/docx_redline/
