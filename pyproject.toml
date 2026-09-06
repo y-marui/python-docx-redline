@@ -45,6 +45,11 @@ python_version = "3.11"
 strict = true
 
 [[tool.mypy.overrides]]
+# Re-checked 2026-09 (see issue #24): lxml-stubs 0.5.1 models `.xpath()`/`.find()`
+# as returning a broad union (element | str | bytes | tuple | list[...]) rather
+# than the `_Element` this codebase's heavy xpath/find usage expects, producing
+# 200+ strict-mode errors across nearly every module. Not yet a net improvement
+# over this override.
 module = "lxml.*"
 ignore_missing_imports = true
 
