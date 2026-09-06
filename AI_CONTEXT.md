@@ -80,6 +80,13 @@ cli → (text_ops | comments | cleanup | inspect | validate) → package → oox
 
 ---
 
+## PowerPoint extension
+
+`pptx-redline` は本文を変更せず、モダンコメントを文字範囲またはスライド全体に追加する。
+`pptx_cli → pptx_comments / pptx_validate → pptx → package` の依存方向を守る。
+既存の ZIP 読み書きを再利用し、Word コマンドとは独立して扱う。
+対応範囲・JSON 入力・制約の正本は README-jp.md、ファイル一覧は docs/file-map.md。
+
 ## Applied Charter Principles
 
 ### Pre-Coding Checklist

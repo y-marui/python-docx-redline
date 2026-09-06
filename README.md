@@ -156,5 +156,56 @@ make all    # lint + type + test
 
 MIT License — see [LICENSE](LICENSE)
 
+## PowerPoint: `pptx-redline`
+
+The same installation includes `pptx-redline`, which adds modern comments to
+**exact text ranges** without changing slide text. This is separate from Word
+Track Changes. It reuses the existing ZIP package writer and `lxml`; no new
+runtime dependencies are required.
+
+```sh
+pptx-redline inspect draft.pptx
+pptx-redline add-comment draft.pptx --slide 1 --match 'Autum' --text 'Use Autumn.' --author 'Reviewer' --out review.pptx
+pptx-redline add-comments-batch draft.pptx --comments comments.json --author 'Reviewer' --out review.pptx
+pptx-redline list-comments review.pptx
+pptx-redline validate review.pptx --original draft.pptx
+```
+
+Batch input:
+
+```json
+[
+  {"slide": 1, "match": "Autum", "text": "Use Autumn."},
+  {"slide": 5, "object_id": "9", "text": "Please add the purpose of this study."}
+]
+```
+
+- Normally `text` and `match` are required. Narrow a target with `slide` (1-based),
+  `shape_id` (string), or `occurrence` (1-based after filtering).
+- For an empty text box or picture, pass its `object_id` from `inspect` together
+  with `slide`. Ordinary pictures and top-level text shapes are supported.
+- Missing or ambiguous matches fail. Matching is case- and whitespace-sensitive.
+  In JSON, use `\r` for paragraph boundaries and `\u000b` for soft line breaks.
+- Whole-slide feedback requires explicit `slide_level: true` and `slide`, with
+  no text selectors. No silent fallback to fixed coordinates is performed.
+- Output must be a new file. Failed batches leave no output. Post-save validation
+  compares source slide order, content, notes, media, and existing comments.
+- Text anchors support ordinary top-level slide text shapes, including split
+  runs, Japanese, surrogate pairs, and breaks. Grouped shapes, tables, math,
+  SmartArt, image text, and speaker notes are not text-range targets. Feedback
+  about text inside an image can be anchored to the picture with `object_id`.
+  `inspect` emits JSON for supported text and objects.
+- Anchors store slide ID, shape ID, and UTF-16 start/length, not a guessed
+  coordinate. Existing slide and shape creation IDs are also included and
+  checked to avoid unresolved anchors. The command does not rewrite wording or layout.
+- A PowerPoint version supporting modern comments is required. Structural checks
+  do not guarantee the visible highlight in PowerPoint; older versions and other
+  viewers may behave differently. Existing unsupported modern anchor types also
+  cause additions to stop safely.
+
+Format references:
+[Microsoft comment specification](https://learn.microsoft.com/en-us/openspecs/office_standards/ms-pptx/161bc2c9-98fc-46b7-852b-ba7ee77e2e54),
+[text-range monikers](https://learn.microsoft.com/en-us/openspecs/office_standards/ms-odrawxml/e719d016-58bb-4656-a3e5-533cd2d50519).
+
 ---
 *This document has a Japanese canonical version [README-jp.md](README-jp.md). Update both in the same commit when editing.*

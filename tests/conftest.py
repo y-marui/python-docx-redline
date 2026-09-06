@@ -89,3 +89,57 @@ def sample_docx(tmp_path: Path) -> Path:
         ["Value is 42 nm and 3.5%."],
     ]
     return write_docx(tmp_path / "sample.docx", paragraphs)
+
+
+@pytest.fixture
+def pptx_path(tmp_path):
+    """Synthetic two-slide deck; file numbers deliberately differ from slide order."""
+    import zipfile
+
+    from lxml import etree
+
+    from docx_redline.pptx import NS, child, qn
+
+    parts = {}
+    presentation = etree.Element(qn("p:presentation"), nsmap=NS)
+    ids = child(presentation, "p:sldIdLst")
+    rels = etree.Element(qn("rel:Relationships"), nsmap={None: NS["rel"]})
+    for index, name in enumerate(("slide7.xml", "slide2.xml"), 1):
+        child(ids, "p:sldId", id=str(255 + index), **{qn("r:id"): f"rId{index}"})
+        child(
+            rels,
+            "rel:Relationship",
+            Id=f"rId{index}",
+            Type=NS["r"] + "/slide",
+            Target="slides/" + name,
+        )
+        slide = etree.Element(qn("p:sld"), nsmap=NS)
+        tree = child(child(slide, "p:cSld"), "p:spTree")
+        shape = child(tree, "p:sp")
+        child(child(shape, "p:nvSpPr"), "p:cNvPr", id="4", name="Title")
+        body = child(shape, "p:txBody")
+        child(body, "a:bodyPr")
+        child(body, "a:lstStyle")
+        para = child(body, "a:p")
+        for text in ("日本😀 ", "Au", "tum meeting"):
+            run = child(para, "a:r")
+            child(run, "a:rPr", b="1")
+            child(run, "a:t").text = text if index == 1 else "Duplicate "
+        child(para, "a:br")
+        child(child(para, "a:r"), "a:t").text = "soft"
+        child(child(child(body, "a:p"), "a:r"), "a:t").text = "Second paragraph"
+        ext = child(child(slide, "p:extLst"), "p:ext", uri="{EXISTING}")
+        child(ext, "p:keep")
+        parts["ppt/slides/" + name] = etree.tostring(slide)
+    parts["ppt/presentation.xml"] = etree.tostring(presentation)
+    parts["ppt/_rels/presentation.xml.rels"] = etree.tostring(rels)
+    parts["[Content_Types].xml"] = etree.tostring(
+        etree.Element(qn("ct:Types"), nsmap={None: NS["ct"]})
+    )
+    parts["ppt/media/image.png"] = b"unchanged binary"
+    parts["ppt/notesSlides/notesSlide1.xml"] = b"<notes>unchanged memo</notes>"
+    path = tmp_path / "source.pptx"
+    with zipfile.ZipFile(path, "w") as archive:
+        for name, value in parts.items():
+            archive.writestr(name, value)
+    return path

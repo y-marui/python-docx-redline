@@ -97,3 +97,22 @@ src/docx_redline/
     - exports: app, main()
     - entry point: `docx-redline` (pyproject.toml [project.scripts])
 ```
+
+## PowerPoint comment support
+
+- `src/docx_redline/pptx.py`: PresentationML namespaces, relationship resolution,
+  slide order, supported text/picture objects, and exact UTF-16 range selection.
+- `src/docx_redline/pptx_comments.py`: modern author/comment parts, explicit
+  slide extension relationships, text/object/slide anchors, strict batch input, and
+  classic/modern comment listing. Depends on `pptx`, `package`, and `ooxml`.
+- `src/docx_redline/pptx_validate.py`: modern anchor integrity and source-content
+  preservation checks. Depends on `pptx` and `package`.
+- `src/docx_redline/pptx_cli.py`: `pptx-redline` entry point; inspect, add-comment,
+  add-comments-batch, list-comments, validate. Saves to new outputs and checks
+  the serialized file before reporting success.
+- `tests/unit/test_pptx.py`, `tests/integration/test_pptx_cli.py`: synthetic
+  fixtures cover exact selection, Unicode, nonsequential slide file names,
+  existing content, safe failure, and CLI round trips.
+
+The existing `DocxPackage` ZIP mechanics are reused without invoking its
+Word-specific discovery methods. Word commands and module paths stay intact.

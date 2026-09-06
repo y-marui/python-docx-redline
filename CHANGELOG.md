@@ -3,6 +3,13 @@
 ## [Unreleased]
 
 ### Added
+- New `pptx-redline` companion CLI adds modern PowerPoint comments to exact
+  text ranges, top-level text shapes, pictures, or explicitly selected whole
+  slides. It supports atomic JSON batches, existing-comment preservation, and
+  validation against the original deck without changing slide content.+- New `pptx-redline` companion CLI adds modern PowerPoint comments to exact
+  text ranges, top-level text shapes, pictures, or explicitly selected whole
+  slides. It supports atomic JSON batches, existing-comment preservation, and
+  validation against the original deck without changing slide content.
 - `--version`/`-V` flag prints the installed version and exits. Shell
   completion is also available via the existing typer-provided
   `--install-completion`/`--show-completion` flags (see README).
