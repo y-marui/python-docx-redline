@@ -18,6 +18,7 @@ dev = [
 
 [project.scripts]
 docx-redline = "docx_redline.cli:main"
+pptx-redline = "docx_redline.pptx_cli:main"
 
 [build-system]
 requires = ["hatchling"]

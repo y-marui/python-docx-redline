@@ -130,5 +130,53 @@ make all    # lint + type + test
 
 MIT License — see [LICENSE](LICENSE)
 
+## PowerPoint: `pptx-redline`
+
+同じインストールに `pptx-redline` コマンドを同梱しています。PPTX の本文を変更せず、
+修正する文言の**文字範囲**にモダンコメントを追加します。Word の変更履歴とは別機能です。
+新しい依存関係は不要です。既存の ZIP パート読み書きと `lxml` を再利用します。
+
+```sh
+pptx-redline inspect draft.pptx
+pptx-redline add-comment draft.pptx --slide 1 --match 'Autum' --text 'Use Autumn.' --author 'Reviewer' --out review.pptx
+pptx-redline add-comments-batch draft.pptx --comments comments.json --author 'Reviewer' --out review.pptx
+pptx-redline list-comments review.pptx
+pptx-redline validate review.pptx --original draft.pptx
+```
+
+一括入力の例:
+
+```json
+[
+  {"slide": 1, "match": "Autum", "text": "Use Autumn."},
+  {"slide": 5, "object_id": "9", "text": "Please add the purpose of this study."}
+]
+```
+
+- 通常は `text` と `match` が必須。`slide`（1始まり）、`shape_id`（文字列）、
+  `occurrence`（絞り込み後の一致箇所、1始まり）で対象を指定できます。
+- 空のテキストボックスや図に付ける場合は、`inspect` で確認した `object_id` と
+  `slide` を指定します。通常の図とスライド直下のテキスト図形に対応します。
+- 一意に見つからない文言には追加しません。検索は大文字・小文字や空白も区別します。
+  段落境界は JSON の `\r`、手動改行は `\u000b` として指定します。
+- スライド全体への指摘は `slide_level: true` と `slide` を明示してください。
+  `match` やその他の文字選択条件とは併用できません。
+- 保存先は新規ファイルのみ。一括処理が失敗した場合は出力を残しません。
+  元のスライド順、本文・ノート・メディア、既存コメントを保存後に比較します。
+- 文字範囲はスライド直下の通常のテキスト図形に対応し、run をまたぐ文言、日本語、
+  絵文字、改行を扱えます。グループ内の図形、表、数式、SmartArt、画像内の文字、
+  ノートは文字範囲アンカーの対象外です。画像内の文字への指摘は、画像そのものに
+  `object_id` で付けられます。`inspect` は対応する文字とオブジェクトを JSON で出力します。
+- コメント位置は固定座標ではなく、スライド ID・図形 ID・UTF-16 の開始位置と長さを
+  保存します。スライド・図形に既存の作成 ID がある場合は、それも参照します。
+  対象文言やレイアウトを自動修正する機能ではありません。
+- モダンコメントに対応した PowerPoint が必要です。構造検証は PowerPoint 上での
+  ハイライト表示を保証しません。古い PowerPoint や他のビューアーの対応は異なります。
+  既存の未対応形式のモダンアンカーがある場合も、安全のため追加を停止します。
+
+形式の根拠:
+[Microsoft のコメント仕様](https://learn.microsoft.com/en-us/openspecs/office_standards/ms-pptx/161bc2c9-98fc-46b7-852b-ba7ee77e2e54)、
+[文字範囲モニカー](https://learn.microsoft.com/en-us/openspecs/office_standards/ms-odrawxml/e719d016-58bb-4656-a3e5-533cd2d50519)。
+
 ---
 *この文書の英語版は [README.md](README.md)。同じコミットで両方更新すること。*
