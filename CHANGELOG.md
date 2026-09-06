@@ -48,6 +48,7 @@
   ([#13](https://github.com/y-marui/python-docx-redline/issues/13))
 
 ### Changed
+- `AI_CONTEXT.md`'s Tech Stack table now references `docs/dev-charter/topics/python/PYTHON_DEV_ENV.md` / `PYTHON_CLI.md` instead of restating the general Python/uv/ruff/mypy/pytest policy (dev-charter subtree sync).
 - `validate`: `no-bold-insertions` is now `no-formatting-insertions` and also
   covers italic, underline, strike, subscript/superscript, and character
   style inside `w:ins`.
