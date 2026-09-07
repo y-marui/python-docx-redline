@@ -191,10 +191,13 @@ Batch input:
 - Output must be a new file. Failed batches leave no output. Post-save validation
   compares source slide order, content, notes, media, and existing comments.
 - Text anchors support ordinary top-level slide text shapes, including split
-  runs, Japanese, surrogate pairs, and breaks. Grouped shapes, tables, math,
-  SmartArt, image text, and speaker notes are not text-range targets. Feedback
-  about text inside an image can be anchored to the picture with `object_id`.
-  `inspect` emits JSON for supported text and objects.
+  runs, Japanese, surrogate pairs, breaks, and shapes PowerPoint moves into
+  `mc:AlternateContent` (e.g. one holding an inserted equation). An
+  equation's own symbols are not matchable text - each one becomes an opaque
+  placeholder - but plain text sharing its shape still is. Grouped shapes,
+  tables, SmartArt, image text, and speaker notes are not text-range targets.
+  Feedback about text inside an image can be anchored to the picture with
+  `object_id`. `inspect` emits JSON for supported text and objects.
 - Anchors store slide ID, shape ID, and UTF-16 start/length, not a guessed
   coordinate. Existing slide and shape creation IDs are also included and
   checked to avoid unresolved anchors. The command does not rewrite wording or layout.

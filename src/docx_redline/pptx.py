@@ -12,6 +12,7 @@ from .package import DocxPackage
 
 NS = {
     "p14": "http://schemas.microsoft.com/office/powerpoint/2010/main",
+    "a14": "http://schemas.microsoft.com/office/drawing/2010/main",
     "a16": "http://schemas.microsoft.com/office/drawing/2014/main",
     "p": "http://schemas.openxmlformats.org/presentationml/2006/main",
     "a": "http://schemas.openxmlformats.org/drawingml/2006/main",
@@ -21,6 +22,7 @@ NS = {
     "pc": "http://schemas.microsoft.com/office/powerpoint/2013/main/command",
     "ac": "http://schemas.microsoft.com/office/drawing/2013/main/command",
     "p188": "http://schemas.microsoft.com/office/powerpoint/2018/8/main",
+    "mc": "http://schemas.openxmlformats.org/markup-compatibility/2006",
 }
 PRESENTATION = "ppt/presentation.xml"
 MODERN_REL = "http://schemas.microsoft.com/office/2018/10/relationships/"
@@ -83,7 +85,13 @@ def slides(pkg: DocxPackage) -> list[Slide]:
 
 
 def office_text(body: etree._Element) -> str:
-    """OfficeArt returns separate paragraphs; soft breaks occupy one character."""
+    """OfficeArt returns separate paragraphs; soft breaks occupy one character.
+
+    An inserted equation (a14:m) carries no plain text of its own; it becomes
+    a single placeholder character (U+FFFC, the conventional stand-in for an
+    embedded non-text object) so the surrounding runs a paragraph mixes it
+    with - e.g. "h: Planck constant" - stay anchorable by exact text.
+    """
     paragraphs = []
     for para in body.findall("a:p", NS):
         chunks = []
@@ -92,6 +100,8 @@ def office_text(body: etree._Element) -> str:
                 chunks.append(node.findtext("a:t", default="", namespaces=NS))
             elif node.tag == qn("a:br"):
                 chunks.append("\v")
+            elif node.tag == qn("a14:m"):
+                chunks.append("￼")
             elif node.tag not in (qn("a:pPr"), qn("a:endParaRPr")):
                 raise RedlineError(
                     "Unsupported text content (e.g. math/alternate content)"
@@ -144,14 +154,42 @@ class ObjectTarget:
         }
 
 
+def top_level_shapes(slide: Slide) -> list[etree._Element]:
+    """Direct spTree children, standing in for mc:AlternateContent wrappers.
+
+    PowerPoint wraps a shape in mc:AlternateContent instead of placing it
+    directly under spTree when saving something that needs an extension the
+    base schema lacks - e.g. a shape holding an inserted equation (a14:m).
+    The mc:Choice branch is what every supported PowerPoint version actually
+    renders and edits; mc:Fallback exists only for consumers missing that
+    extension and typically holds an unhelpful static picture instead, so it
+    is used only when no mc:Choice is present.
+    """
+    spTree = slide.root.find("p:cSld/p:spTree", NS)
+    result = []
+    for node in spTree:
+        if node.tag != qn("mc:AlternateContent"):
+            result.append(node)
+            continue
+        branch = node.find("mc:Choice", NS)
+        if branch is None:
+            branch = node.find("mc:Fallback", NS)
+        if branch is not None:
+            result.extend(branch)
+    return result
+
+
 def object_targets(slide: Slide) -> list[ObjectTarget]:
     result = []
-    paths = (
-        ("shape", "p:cSld/p:spTree/p:sp", "p:nvSpPr/p:cNvPr"),
-        ("picture", "p:cSld/p:spTree/p:pic", "p:nvPicPr/p:cNvPr"),
-    )
-    for kind, path, props_path in paths:
-        for element in slide.root.findall(path, NS):
+    kinds = {
+        qn("p:sp"): ("shape", "p:nvSpPr/p:cNvPr"),
+        qn("p:pic"): ("picture", "p:nvPicPr/p:cNvPr"),
+    }
+    shapes = top_level_shapes(slide)
+    for tag, (kind, props_path) in kinds.items():
+        for element in shapes:
+            if element.tag != tag:
+                continue
             props = element.find(props_path, NS)
             if props is not None:
                 result.append(
@@ -181,9 +219,12 @@ def find_object(pkg: DocxPackage, object_id: str, *, slide: int) -> ObjectTarget
 
 def text_targets(slide: Slide) -> list[TextTarget]:
     result = []
-    # Only ordinary slide shapes: alternate-content fallbacks, tables and
-    # grouped text need different moniker paths and must not be guessed.
-    for shape in slide.root.findall("p:cSld/p:spTree/p:sp", NS):
+    # Only ordinary top-level shapes (including ones PowerPoint moved into
+    # mc:AlternateContent, resolved by top_level_shapes): tables and grouped
+    # text need different moniker paths and must not be guessed.
+    for shape in top_level_shapes(slide):
+        if shape.tag != qn("p:sp"):
+            continue
         props = shape.find("p:nvSpPr/p:cNvPr", NS)
         body = shape.find("p:txBody", NS)
         if props is None or body is None:
