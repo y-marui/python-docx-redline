@@ -142,6 +142,111 @@ def test_grouped_text_not_silently_anchored(pptx_path):
         find_target(pkg, "Autum")
 
 
+def test_unsupported_paragraph_content_still_excludes_shape(pptx_path):
+    pkg = DocxPackage(pptx_path)
+    slide = slides(pkg)[0]
+    shape = slide.root.find("p:cSld/p:spTree/p:sp", NS)
+    child(shape.find("p:txBody/a:p", NS), "a:fakeUnsupported")
+    assert not any(t.shape_id == "4" for t in text_targets(slide))
+    with pytest.raises(RedlineError, match="not found"):
+        find_target(pkg, "Autum")
+
+
+def test_equation_shape_in_alternate_content_choice_is_anchorable(pptx_path, tmp_path):
+    """PowerPoint wraps a shape holding an inserted equation (a14:m) in
+    mc:AlternateContent instead of placing it directly under spTree; the
+    equation itself becomes an opaque placeholder so surrounding plain text
+    (e.g. "elementary charge") stays anchorable."""
+    pkg = DocxPackage(pptx_path)
+    slide = slides(pkg)[0]
+    tree = slide.root.find("p:cSld/p:spTree", NS)
+    alt = child(tree, "mc:AlternateContent")
+    choice = child(alt, "mc:Choice", Requires="a14")
+    shape = child(choice, "p:sp")
+    child(child(shape, "p:nvSpPr"), "p:cNvPr", id="50", name="Equation")
+    body = child(shape, "p:txBody")
+    child(body, "a:bodyPr")
+    child(body, "a:lstStyle")
+    para = child(body, "a:p")
+    child(child(para, "a:r"), "a:t").text = "e: elementary charge, "
+    child(para, "a14:m")
+    child(child(para, "a:r"), "a:t").text = "ℏ: Dirac constant"
+    fallback_shape = child(child(alt, "mc:Fallback"), "p:sp")
+    child(child(fallback_shape, "p:nvSpPr"), "p:cNvPr", id="51", name="Fallback")
+
+    equation = next(t for t in text_targets(slide) if t.shape_id == "50")
+    assert equation.text == "e: elementary charge, ￼ℏ: Dirac constant"
+    assert not any(t.shape_id == "51" for t in text_targets(slide))
+
+    source = tmp_path / "equation.pptx"
+    pkg.save(source)
+    pkg = DocxPackage(source)
+    add_comment(pkg, "Confirm symbol", author="Reviewer", match="Dirac constant")
+    out = tmp_path / "equation-comment.pptx"
+    pkg.save(out)
+    assert validate(DocxPackage(out), DocxPackage(source)) == 1
+
+
+def test_alternate_content_fallback_used_when_no_choice(pptx_path):
+    pkg = DocxPackage(pptx_path)
+    slide = slides(pkg)[0]
+    tree = slide.root.find("p:cSld/p:spTree", NS)
+    alt = child(tree, "mc:AlternateContent")
+    shape = child(child(alt, "mc:Fallback"), "p:sp")
+    child(child(shape, "p:nvSpPr"), "p:cNvPr", id="52", name="Fallback only")
+    body = child(shape, "p:txBody")
+    child(body, "a:bodyPr")
+    child(body, "a:lstStyle")
+    child(child(child(body, "a:p"), "a:r"), "a:t").text = "Fallback text"
+
+    found = next(t for t in text_targets(slide) if t.shape_id == "52")
+    assert found.text == "Fallback text"
+
+
+def test_alternate_content_skips_unsupported_choice_before_understood_one(pptx_path):
+    """A Choice is honored only when every one of its Requires namespaces is
+    understood, even when an earlier, unsupported Choice comes first in
+    document order (per the OOXML Markup Compatibility spec)."""
+    pkg = DocxPackage(pptx_path)
+    slide = slides(pkg)[0]
+    tree = slide.root.find("p:cSld/p:spTree", NS)
+    alt = child(tree, "mc:AlternateContent")
+
+    unsupported = child(child(alt, "mc:Choice", Requires="a97"), "p:sp")
+    child(child(unsupported, "p:nvSpPr"), "p:cNvPr", id="70", name="Unsupported")
+    body = child(unsupported, "p:txBody")
+    child(body, "a:bodyPr")
+    child(body, "a:lstStyle")
+    child(child(child(body, "a:p"), "a:r"), "a:t").text = "Should not be used"
+
+    understood = child(child(alt, "mc:Choice", Requires="a14"), "p:sp")
+    child(child(understood, "p:nvSpPr"), "p:cNvPr", id="71", name="Understood")
+    body = child(understood, "p:txBody")
+    child(body, "a:bodyPr")
+    child(body, "a:lstStyle")
+    child(child(child(body, "a:p"), "a:r"), "a:t").text = "Use this one"
+
+    ids = {t.shape_id for t in text_targets(slide)}
+    assert "71" in ids
+    assert "70" not in ids
+
+
+def test_alternate_content_picture_is_commentable(pptx_path, tmp_path):
+    pkg = DocxPackage(pptx_path)
+    tree = slides(pkg)[0].root.find("p:cSld/p:spTree", NS)
+    choice = child(child(tree, "mc:AlternateContent"), "mc:Choice", Requires="a14")
+    picture = child(choice, "p:pic")
+    child(child(picture, "p:nvPicPr"), "p:cNvPr", id="60", name="Diagram")
+    source = tmp_path / "alt-picture.pptx"
+    pkg.save(source)
+
+    pkg = DocxPackage(source)
+    add_comment(pkg, "Check figure", author="Reviewer", slide=1, object_id="60")
+    out = tmp_path / "alt-picture-comment.pptx"
+    pkg.save(out)
+    assert validate(DocxPackage(out), DocxPackage(source)) == 1
+
+
 def test_duplicate_shape_id_fails_validation(pptx_path):
     pkg = DocxPackage(pptx_path)
     tree = slides(pkg)[0].root.find("p:cSld/p:spTree", NS)
