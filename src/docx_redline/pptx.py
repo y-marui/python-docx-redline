@@ -154,16 +154,33 @@ class ObjectTarget:
         }
 
 
+UNDERSTOOD_ALTERNATE_CONTENT_NAMESPACES = {NS["a14"]}
+
+
+def _alternate_content_branch(node: etree._Element) -> etree._Element | None:
+    """Pick the branch PowerPoint itself would render.
+
+    Per the OOXML Markup Compatibility spec, a consumer picks the first
+    mc:Choice whose Requires prefixes are *all* extensions it understands,
+    in document order, falling back to mc:Fallback if none qualify. We only
+    actually interpret content gated by a14 (an inserted equation); a Choice
+    requiring anything else is skipped rather than guessed at, even if it
+    happens to be listed first.
+    """
+    for choice in node.findall("mc:Choice", NS):
+        prefixes = choice.get("Requires", "").split()
+        namespaces = {choice.nsmap.get(prefix) for prefix in prefixes}
+        if prefixes and namespaces <= UNDERSTOOD_ALTERNATE_CONTENT_NAMESPACES:
+            return choice
+    return node.find("mc:Fallback", NS)
+
+
 def top_level_shapes(slide: Slide) -> list[etree._Element]:
     """Direct spTree children, standing in for mc:AlternateContent wrappers.
 
     PowerPoint wraps a shape in mc:AlternateContent instead of placing it
     directly under spTree when saving something that needs an extension the
     base schema lacks - e.g. a shape holding an inserted equation (a14:m).
-    The mc:Choice branch is what every supported PowerPoint version actually
-    renders and edits; mc:Fallback exists only for consumers missing that
-    extension and typically holds an unhelpful static picture instead, so it
-    is used only when no mc:Choice is present.
     """
     spTree = slide.root.find("p:cSld/p:spTree", NS)
     result = []
@@ -171,9 +188,7 @@ def top_level_shapes(slide: Slide) -> list[etree._Element]:
         if node.tag != qn("mc:AlternateContent"):
             result.append(node)
             continue
-        branch = node.find("mc:Choice", NS)
-        if branch is None:
-            branch = node.find("mc:Fallback", NS)
+        branch = _alternate_content_branch(node)
         if branch is not None:
             result.extend(branch)
     return result

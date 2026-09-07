@@ -203,6 +203,34 @@ def test_alternate_content_fallback_used_when_no_choice(pptx_path):
     assert found.text == "Fallback text"
 
 
+def test_alternate_content_skips_unsupported_choice_before_understood_one(pptx_path):
+    """A Choice is honored only when every one of its Requires namespaces is
+    understood, even when an earlier, unsupported Choice comes first in
+    document order (per the OOXML Markup Compatibility spec)."""
+    pkg = DocxPackage(pptx_path)
+    slide = slides(pkg)[0]
+    tree = slide.root.find("p:cSld/p:spTree", NS)
+    alt = child(tree, "mc:AlternateContent")
+
+    unsupported = child(child(alt, "mc:Choice", Requires="a97"), "p:sp")
+    child(child(unsupported, "p:nvSpPr"), "p:cNvPr", id="70", name="Unsupported")
+    body = child(unsupported, "p:txBody")
+    child(body, "a:bodyPr")
+    child(body, "a:lstStyle")
+    child(child(child(body, "a:p"), "a:r"), "a:t").text = "Should not be used"
+
+    understood = child(child(alt, "mc:Choice", Requires="a14"), "p:sp")
+    child(child(understood, "p:nvSpPr"), "p:cNvPr", id="71", name="Understood")
+    body = child(understood, "p:txBody")
+    child(body, "a:bodyPr")
+    child(body, "a:lstStyle")
+    child(child(child(body, "a:p"), "a:r"), "a:t").text = "Use this one"
+
+    ids = {t.shape_id for t in text_targets(slide)}
+    assert "71" in ids
+    assert "70" not in ids
+
+
 def test_alternate_content_picture_is_commentable(pptx_path, tmp_path):
     pkg = DocxPackage(pptx_path)
     tree = slides(pkg)[0].root.find("p:cSld/p:spTree", NS)
@@ -293,7 +321,7 @@ def test_picture_object_comment_roundtrip(pptx_path, tmp_path):
     out = tmp_path / "picture-comment.pptx"
     pkg.save(out)
     saved = DocxPackage(out)
-    assert validate(saved, DocxPackage(source)) == 1
+    assert validate(saved, DocxPackage(pptx_path)) == 1
     comment = list_comments(saved)[0]
     assert (comment["object_id"], comment["object_kind"]) == ("12", "picMk")
     anchor = saved.xml(str(comment["part"])).find("p188:cm/ac:deMkLst", NS)
