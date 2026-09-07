@@ -321,7 +321,7 @@ def test_picture_object_comment_roundtrip(pptx_path, tmp_path):
     out = tmp_path / "picture-comment.pptx"
     pkg.save(out)
     saved = DocxPackage(out)
-    assert validate(saved, DocxPackage(pptx_path)) == 1
+    assert validate(saved, DocxPackage(source)) == 1
     comment = list_comments(saved)[0]
     assert (comment["object_id"], comment["object_kind"]) == ("12", "picMk")
     anchor = saved.xml(str(comment["part"])).find("p188:cm/ac:deMkLst", NS)
