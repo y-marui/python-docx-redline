@@ -51,7 +51,7 @@ OOXMLを直接いじる使い捨てPythonスクリプトを書いていたのを
 src/docx_redline/   # パッケージ本体
 tests/unit/         # 単体テスト
 tests/integration/  # CLIの end-to-end テスト（typer.testing.CliRunner）
-docs/               # 人間が書き・読む仕様書（file-map.md 以外は AI は参照のみ）
+docs/               # 仕様書・ナレッジベース（人間・AI 共用。仕様変更は依頼・承認を経て記述）
 docs/dev-charter/   # 開発憲章（git subtree で取り込み）
 ```
 
@@ -236,7 +236,8 @@ cli → (text_ops | comments | cleanup | inspect | validate) → package → oox
 | 対象 | 役割 | AI の編集 |
 |---|---|---|
 | `docs/file-map.md` | ファイルレベルの依存関係 | **可**（情報が足りない・古い場合は直接追記・更新してよい） |
-| `docs/` のそれ以外（`specification.md`・`architecture.md`・`ui-design.md` 等） | 人間が書き・読む詳細仕様書 | **禁止**（参照のみ）。ユーザーが明示的に指示した場合のみ、その指示範囲で編集する |
+| `docs/` のそれ以外（`specification.md`・`architecture.md`・`ui-design.md` 等） | 人間・AI 共用の詳細仕様書 | 更新可。ただし仕様・設計判断の変更は、ユーザーの依頼または提案への承認を経て記述する |
+| `docs/dev-charter/` | 開発憲章（git subtree） | **禁止**（直接編集しない。変更は dev-charter 本体に Issue を立て、`git subtree pull` で取り込む） |
 
 ### CI / Local Development Commands
 
@@ -301,4 +302,4 @@ CI（GitHub Actions）は push / PR のたびに `security` → `lint`（ruff ch
 - **大規模リファクタ禁止**: 意図しない挙動変化を防ぐため（明示的に依頼された場合を除く）
 - **依存追加禁止**: ライセンス・セキュリティリスクを人間がレビューするため。必要な場合は Issue を作成する
 - **WIP コミット禁止**: 動作しないコードはコミットしない
-- `docs/` ディレクトリを AI が直接編集しない（参照のみ）。例外: `docs/file-map.md` は情報が古い・不足している場合に AI が直接追記・更新してよい。それ以外の `docs/` 配下（`specification.md` 等）はユーザーが明示的に指示した場合のみ、その指示範囲で編集する
+- `docs/dev-charter/` 配下を AI が直接編集しない（`docs/` のそれ以外は編集可。仕様変更は依頼・承認を経る）
