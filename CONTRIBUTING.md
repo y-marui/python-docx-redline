@@ -7,17 +7,16 @@
 | Branch | Purpose |
 |---|---|
 | `main` | Production-ready code |
-| `develop` | Integration branch |
-| `feature/*` | Feature development |
+| `feature/*` | Feature development (branched from `main`) |
 
 ### Workflow
 
 1. Create an Issue describing the task
-2. Create a `feature/*` branch from `develop`
+2. Create a `feature/*` branch from `main`
 3. Implement (with AI assistance as needed)
-4. Open a Pull Request
+4. Open a Pull Request against `main`
 5. Code review
-6. Merge to `develop`, then `main`
+6. Merge to `main`
 
 ### Commit Convention
 
