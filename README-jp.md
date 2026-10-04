@@ -5,6 +5,8 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![CI](https://github.com/y-marui/python-docx-redline/actions/workflows/ci.yml/badge.svg)](https://github.com/y-marui/python-docx-redline/actions/workflows/ci.yml)
 [![Charter Check](https://github.com/y-marui/python-docx-redline/actions/workflows/dev-charter-check.yml/badge.svg)](https://github.com/y-marui/python-docx-redline/actions/workflows/dev-charter-check.yml)
+[![GitHub Sponsors](https://img.shields.io/github/sponsors/y-marui?style=social)](https://github.com/sponsors/y-marui)
+[![Buy Me a Coffee](https://img.shields.io/badge/Buy%20Me%20a%20Coffee-donate-yellow.svg)](https://www.buymeacoffee.com/y.marui)
 
 Word (`.docx`) 文書を、その場でスクリプトを書かずに安全な最小差分の変更履歴（Track Changes）として編集するコマンドラインツール。
 
