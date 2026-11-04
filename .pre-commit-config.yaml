@@ -310,3 +310,31 @@ repos:
         entry: scripts/check-local-charter-version.sh
         pass_filenames: false
         always_run: true
+
+  # ----------------------------------------------------------------
+  # UPDATE_CHECKLIST sign check (pre-push only)
+  # (a diff that only touches the dev-charter subtree must carry a
+  # `Update-Checklist: done` trailer commit, or also change a file outside
+  # the subtree. Needs `pre-commit install --hook-type pre-push`)
+  # ----------------------------------------------------------------
+  - repo: local
+    hooks:
+      - id: check-update-checklist
+        name: Check UPDATE_CHECKLIST was run
+        language: script
+        entry: scripts/check-update-checklist.sh
+        stages: [pre-push]
+        pass_filenames: false
+        always_run: true
+
+  # ----------------------------------------------------------------
+  # Hook script existence (SECURITY_POLICY.md)
+  # ----------------------------------------------------------------
+  - repo: local
+    hooks:
+      - id: check-hook-scripts
+        name: Check hook scripts exist
+        language: script
+        entry: scripts/check-hook-scripts.sh
+        pass_filenames: false
+        always_run: true
