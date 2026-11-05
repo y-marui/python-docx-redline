@@ -1,6 +1,7 @@
 # docx-redline
 
-> このドキュメントが正本（日本語）です。英語版は [README.md](README.md)。
+> **このファイルは正本（日本語版）です。**
+> 英語版（参照）は [README.md](README.md) を参照してください。
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![CI](https://github.com/y-marui/python-docx-redline/actions/workflows/ci.yml/badge.svg)](https://github.com/y-marui/python-docx-redline/actions/workflows/ci.yml)
@@ -184,4 +185,4 @@ pptx-redline validate review.pptx --original draft.pptx
 [文字範囲モニカー](https://learn.microsoft.com/en-us/openspecs/office_standards/ms-odrawxml/e719d016-58bb-4656-a3e5-533cd2d50519)。
 
 ---
-*この文書の英語版は [README.md](README.md)。同じコミットで両方更新すること。*
+*この文書には英語版 [README.md](README.md) があります。編集時は同一コミットで更新してください。*
