@@ -109,14 +109,15 @@ tool does not invent a generic reviewer identity.
 docx-redline validate draft-fix1.docx --original draft.docx --max-deletion-length 60
 ```
 
-Checks include: zip integrity, Track Changes enabled, changes actually
-present (`--no-require-changes` to skip), no notable formatting (bold,
-italic, underline, strike, subscript/superscript, character style) on
-inserted text, comment anchors all present and matched, and — when
-`--original` is given — paragraph count unchanged, numbers/units (via
-`--number-pattern`) preserved, and formatting on untouched text unchanged.
-`--contains` / `--not-contains` (repeatable) assert specific fragments
-survived or were removed. Any failing check exits with status 1.
+- zip integrity
+- Track Changes enabled
+- changes actually present (`--no-require-changes` to skip)
+- no notable formatting (bold, italic, underline, strike, subscript/superscript, character style) on inserted text
+- comment anchors all present and matched
+- when `--original` is given: paragraph count unchanged, numbers/units (via `--number-pattern`) preserved, and formatting on untouched text unchanged
+- `--contains` / `--not-contains` (repeatable) assert specific fragments survived or were removed
+
+Any failing check exits with status 1.
 
 ### `export-pdf`: convert a `.docx` to PDF via Microsoft Word (macOS only)
 
