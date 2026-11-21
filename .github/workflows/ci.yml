@@ -73,7 +73,7 @@ jobs:
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v7
-      - uses: astral-sh/setup-uv@v10.3.3
+      - uses: astral-sh/setup-uv@v10.4.0
         with:
           enable-cache: ${{ !(vars.LINUX_RUNNER && !github.event.pull_request.head.repo.fork) }}
       - run: uv sync --frozen
@@ -95,7 +95,7 @@ jobs:
         python-version: ["3.11", "3.12", "3.13", "3.14"]  # EOLまで6ヶ月以上あるバージョン
     steps:
       - uses: actions/checkout@v7
-      - uses: astral-sh/setup-uv@v10.3.3
+      - uses: astral-sh/setup-uv@v10.4.0
         with:
           enable-cache: ${{ !(vars.LINUX_RUNNER && !github.event.pull_request.head.repo.fork) }}
           python-version: ${{ matrix.python-version }}
@@ -113,7 +113,7 @@ jobs:
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v7
-      - uses: astral-sh/setup-uv@v10.3.3
+      - uses: astral-sh/setup-uv@v10.4.0
         with:
           enable-cache: ${{ !(vars.LINUX_RUNNER && !github.event.pull_request.head.repo.fork) }}
       - run: uv sync --frozen
